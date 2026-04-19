@@ -22,6 +22,8 @@ ENV/
 # Local environment files
 .env
 .env.*
+!.env.example
+AGENTS.md
 
 # IDE and editor files
 .idea/

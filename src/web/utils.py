@@ -20,7 +20,7 @@ from configuration.config import (
 
 
 class IndexUtil:
-    """创建全文索引、向量索引并为节点写入嵌入向量。"""
+    """Build fulltext/vector indexes and persist node embeddings."""
 
     def __init__(self):
         self.graph = Neo4jGraph(
@@ -34,7 +34,6 @@ class IndexUtil:
         )
 
     def create_fulltext_index(self, index_name: str, label: str, property_name: str):
-        """为节点名称创建全文检索索引。"""
         cypher = f"""
             CREATE FULLTEXT INDEX {index_name} IF NOT EXISTS
             FOR (n:{label}) ON EACH [n.{property_name}]
@@ -48,12 +47,13 @@ class IndexUtil:
         source_property: str,
         embedding_property: str,
     ):
-        """写入嵌入向量后，再创建 Neo4j 向量索引。"""
         embedding_dim = self._add_embedding(
             label=label,
             source_property=source_property,
             embedding_property=embedding_property,
         )
+        if embedding_dim is None:
+            return
 
         cypher = f"""
             CREATE VECTOR INDEX {index_name} IF NOT EXISTS
@@ -68,37 +68,37 @@ class IndexUtil:
         self.graph.query(cypher)
 
     def _add_embedding(
-            self,
-            label: str,
-            source_property: str,
-            embedding_property: str,
-    ) -> int:
-        """为指定标签的节点批量生成嵌入向量并写回图数据库。"""
+        self,
+        label: str,
+        source_property: str,
+        embedding_property: str,
+    ) -> int | None:
         cypher = f"""
-            MATCH (n:{label}) 
+            MATCH (n:{label})
             RETURN n.{source_property} AS text, id(n) AS id
         """
         results = self.graph.query(cypher)
-        docs = [item['text'] for item in results if item['text']]
-        ids = [item['id'] for item in results if item['text']]
+        docs = [item["text"] for item in results if item["text"]]
+        ids = [item["id"] for item in results if item["text"]]
+        if not docs:
+            return None
 
         embeddings = self.embedding_model.embed_documents(docs)
         batch = [
-            {'id':node_id, 'embedding':embedding}
+            {"id": node_id, "embedding": embedding}
             for node_id, embedding in zip(ids, embeddings)
         ]
 
         cypher = f"""
             UNWIND $batch AS item
-            MATCH (n:{label}) 
+            MATCH (n:{label})
             WHERE id(n) = item.id
             SET n.{embedding_property} = item.embedding
         """
-        self.graph.query(cypher, params={'batch':batch})
+        self.graph.query(cypher, params={"batch": batch})
         return len(embeddings[0])
 
     def create_all_indexes(self):
-        """为用到的全部实体标签创建全文与向量索引。"""
         for label, index_info in ENTITY_INDEX_CONFIG.items():
             self.create_fulltext_index(
                 index_name=index_info["fulltext_index"],
@@ -112,7 +112,8 @@ class IndexUtil:
                 embedding_property="embedding",
             )
 
+
 if __name__ == "__main__":
     util = IndexUtil()
     util.create_all_indexes()
-    print("Day 04 全部索引创建完成。")
+    print("All indexes created.")

@@ -16,6 +16,7 @@ DATA_DIR = ROOT_DIR / "data"
 NER_DIR = "ner"
 RAW_DATA_DIR = DATA_DIR / NER_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / NER_DIR / "processed"
+NORMALIZATION_CONFIG_FILE = ROOT_DIR / "src" / "configuration" / "entity_normalization.json"
 
 LOG_DIR = ROOT_DIR / "logs"
 CHECKPOINT_DIR = ROOT_DIR / "checkpoints"
@@ -34,9 +35,20 @@ EARLY_STOPPING_PATIENCE = 20
 MAX_LENGTH = 128
 SEED = 42
 
-LABELS = ["B", "I", "O"]
+ENTITY_TYPES = ["CAT", "ATTR", "PEOPLE", "SPEC"]
+LABELS = [
+    "O",
+    *[f"{prefix}-{entity_type}" for entity_type in ENTITY_TYPES for prefix in ("B", "I")],
+]
 LABEL_TO_ID = {label: index for index, label in enumerate(LABELS)}
 ID_TO_LABEL = {index: label for index, label in enumerate(LABELS)}
+
+TEXT_ENTITY_NODE_LABELS = {
+    "CAT": "CategoryTag",
+    "ATTR": "AttributeTag",
+    "PEOPLE": "PeopleTag",
+    "SPEC": "SpecTag",
+}
 
 MYSQL_CONFIG = {
     "host": os.getenv("MYSQL_HOST", "localhost"),
@@ -66,7 +78,7 @@ GRAPH_NODE_LABELS = [
     "Trademark",
     "SaleAttrName",
     "SaleAttrValue",
-    "Tag",
+    *TEXT_ENTITY_NODE_LABELS.values(),
 ]
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -101,6 +113,22 @@ ENTITY_INDEX_CONFIG = {
     "Category3": {
         "fulltext_index": "category3_fulltext_index",
         "vector_index": "category3_vector_index",
+    },
+    "CategoryTag": {
+        "fulltext_index": "category_tag_fulltext_index",
+        "vector_index": "category_tag_vector_index",
+    },
+    "AttributeTag": {
+        "fulltext_index": "attribute_tag_fulltext_index",
+        "vector_index": "attribute_tag_vector_index",
+    },
+    "PeopleTag": {
+        "fulltext_index": "people_tag_fulltext_index",
+        "vector_index": "people_tag_vector_index",
+    },
+    "SpecTag": {
+        "fulltext_index": "spec_tag_fulltext_index",
+        "vector_index": "spec_tag_vector_index",
     },
 }
 

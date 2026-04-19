@@ -1,5 +1,4 @@
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -14,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 from configuration.config import (
+    ENTITY_TYPES,
     ID_TO_LABEL,
     LABEL_TO_ID,
     MAX_LENGTH,
@@ -23,6 +23,20 @@ from configuration.config import (
     SEED,
     ensure_project_dirs,
 )
+
+
+def get_entity_type(entity: dict) -> str:
+    labels = entity.get("labels", [])
+    if not labels:
+        raise ValueError(f"Found unlabeled entity span: {entity}")
+
+    entity_type = str(labels[0]).strip().upper()
+    if entity_type not in ENTITY_TYPES:
+        raise ValueError(
+            f"Unsupported entity label '{entity_type}'. "
+            f"Please relabel data with CAT / ATTR / PEOPLE / SPEC."
+        )
+    return entity_type
 
 
 def encode_example(example, tokenizer):
@@ -40,10 +54,11 @@ def encode_example(example, tokenizer):
         if start >= len(tokens):
             continue
 
+        entity_type = get_entity_type(entity)
         end = min(end, len(tokens))
-        char_labels[start] = LABEL_TO_ID['B']
+        char_labels[start] = LABEL_TO_ID[f"B-{entity_type}"]
         for i in range(start + 1, end):
-            char_labels[i] = LABEL_TO_ID['I']
+            char_labels[i] = LABEL_TO_ID[f"I-{entity_type}"]
 
     aligned_labels = []
     preview_word_id = None
@@ -53,8 +68,10 @@ def encode_example(example, tokenizer):
             continue
 
         label_id = char_labels[word_id]
-        if word_id == preview_word_id and label_id == LABEL_TO_ID['B']:
-            label_id = LABEL_TO_ID['I']
+        if word_id == preview_word_id and label_id != LABEL_TO_ID['O']:
+            label_name = ID_TO_LABEL[label_id]
+            if label_name.startswith("B-"):
+                label_id = LABEL_TO_ID[f"I-{label_name[2:]}"]
         aligned_labels.append(label_id)
         preview_word_id = word_id
 
@@ -63,6 +80,7 @@ def encode_example(example, tokenizer):
 
 
 def process():
+    ensure_project_dirs()
     dataset = load_dataset("json", data_files=str(RAW_DATA_FILE), split="train")
 
     unused_columns = ["id", "annotator", "annotation_id", "created_at", "updated_at", "lead_time"]

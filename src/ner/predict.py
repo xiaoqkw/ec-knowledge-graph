@@ -1,10 +1,8 @@
 import os
 import sys
 from pathlib import Path
-from typing import List, Sequence
 
 import torch
-
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 
 CURRENT_DIR = Path(__file__).resolve()
@@ -16,6 +14,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 from configuration.config import BEST_MODEL_DIR
 
+
 class Predictor:
     def __init__(self, model, tokenizer, device):
         self.model = model.to(device)
@@ -23,7 +22,7 @@ class Predictor:
         self.tokenizer = tokenizer
         self.device = device
 
-    def predict(self, inputs: str | List[str]):
+    def predict(self, inputs: str | list[str]):
         is_single = isinstance(inputs, str)
         batch_inputs = [inputs] if is_single else inputs
 
@@ -35,7 +34,7 @@ class Predictor:
             truncation=True,
             return_tensors="pt",
         )
-        tokenized = { k:v.to(self.device) for k, v in tokenized.items() }
+        tokenized = {key: value.to(self.device) for key, value in tokenized.items()}
 
         with torch.no_grad():
             logits = self.model(**tokenized).logits
@@ -43,45 +42,67 @@ class Predictor:
 
         outputs = []
         for tokens, prediction in zip(tokens_list, predictions):
-            valid_list = prediction[1 : len(tokens)+1]
-            entities = [self.model.config.id2label[index] for index in valid_list]
-            outputs.append(entities)
+            valid_list = prediction[1 : len(tokens) + 1]
+            outputs.append([self.model.config.id2label[index] for index in valid_list])
 
         return outputs[0] if is_single else outputs
 
-    def extract(self, inputs: str | List[str]):
+    def extract(self, inputs: str | list[str]):
         is_single = isinstance(inputs, str)
         batch_inputs = [inputs] if is_single else inputs
         predictions = self.predict(batch_inputs)
 
         entities = []
-        for input, prediction in zip(batch_inputs, predictions):
-            entities.append(self._extract_entity(input, prediction))
+        for text, prediction in zip(batch_inputs, predictions):
+            entities.append(self._extract_entities(text, prediction))
 
         return entities[0] if is_single else entities
 
-    def _extract_entity(self, tokens, prediction):
-        entity_list = []
-        current = []
+    def _extract_entities(self, text: str, prediction: list[str]) -> list[dict]:
+        entities = []
+        current_text = []
+        current_start = None
+        current_type = None
 
-        tokens_list = list(tokens)
-        for token, pred in zip(tokens_list, prediction):
-            if pred == 'B':
-                if current:
-                    entity_list.append("".join(current))
-                current = [token]
-            elif pred == 'I':
-                if current:
-                    current.append(token)
+        def flush(end_index: int) -> None:
+            nonlocal current_text, current_start, current_type
+            if current_text and current_type is not None and current_start is not None:
+                entities.append(
+                    {
+                        "text": "".join(current_text),
+                        "entity_type": current_type,
+                        "start": current_start,
+                        "end": end_index,
+                    }
+                )
+            current_text = []
+            current_start = None
+            current_type = None
+
+        for index, (token, label) in enumerate(zip(text, prediction)):
+            if label == "O":
+                flush(index)
+                continue
+
+            prefix, entity_type = label.split("-", maxsplit=1)
+            if prefix == "B":
+                flush(index)
+                current_text = [token]
+                current_start = index
+                current_type = entity_type
+                continue
+
+            if current_type == entity_type and current_text:
+                current_text.append(token)
             else:
-                if current:
-                    entity_list.append("".join(current))
-                current = []
+                flush(index)
+                current_text = [token]
+                current_start = index
+                current_type = entity_type
 
-        if current:
-            entity_list.append("".join(current))
+        flush(len(text))
+        return entities
 
-        return entity_list
 
 def load_predictor():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -93,18 +114,18 @@ def load_predictor():
 def demo() -> None:
     predictor = load_predictor()
     texts = [
-        "麦德龙德国进口双心多维叶黄素护眼营养软胶囊30粒x3盒眼干涩",
+        "麦德龙德国进口双心多维叶黄素护眼营养软胶囊60粒3盒眼干涩",
         "滋源无硅油无患子洗发水护发素女士2653控油清爽",
     ]
-    print("BIO 标签结果:")
+    print("BIO labels:")
     predictions = predictor.predict(texts)
     for text, labels in zip(texts, predictions):
         print(text)
         print(labels)
 
-    print("\n抽取出的实体:")
+    print("\nExtracted entities:")
     print(predictor.extract(texts))
+
 
 if __name__ == "__main__":
     demo()
-

@@ -58,16 +58,22 @@ class Neo4jWriter:
         """
         self.run_query(cypher, batch=relations)
 
-    def clear_spu_tag_relations(self, spu_ids: list[int]):
+    def clear_spu_relations(self, spu_ids: list[int], end_labels: list[str]):
         if not spu_ids:
             return
+        if not end_labels:
+            return
 
-        cypher = f"""
-            MATCH (s:SPU)-[r:Have]->(t:Tag)
+        cypher = """
+            MATCH (s:SPU)-[r:Have]->(t)
             WHERE s.id IN $spu_ids
+              AND any(label IN labels(t) WHERE label IN $end_labels)
             DELETE r
             WITH DISTINCT t
             WHERE NOT (t)<-[:Have]-(:SPU)
             DELETE t
         """
-        self.run_query(cypher, spu_ids=spu_ids)
+        self.run_query(cypher, spu_ids=spu_ids, end_labels=end_labels)
+
+    def clear_spu_tag_relations(self, spu_ids: list[int]):
+        self.clear_spu_relations(spu_ids, ["Tag"])

@@ -2,9 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer
-
 CURRENT_DIR = Path(__file__).resolve()
 SRC_DIR = CURRENT_DIR.parents[1]
 if str(SRC_DIR) not in sys.path:
@@ -12,27 +9,26 @@ if str(SRC_DIR) not in sys.path:
 
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
-from configuration.config import BEST_MODEL_DIR  
-from datasync.utils import MysqlReader, Neo4jWriter  
-from ner.predict import Predictor, load_predictor  
+from configuration.config import TEXT_ENTITY_NODE_LABELS
+from datasync.utils import MysqlReader, Neo4jWriter
+from ner.normalization import EntityNormalizer
+from ner.predict import load_predictor
+
 
 class TextSynchronizer:
-    """把 SPU 描述文本中抽取出的 Tag 同步到 Neo4j。"""
+    """Sync typed text entities extracted from SPU descriptions to Neo4j."""
 
     def __init__(self):
         self.reader = MysqlReader()
         self.writer = Neo4jWriter()
-        self.extractor = self._init_extractor()
+        self.extractor = load_predictor()
+        self.normalizer = EntityNormalizer()
 
     def close(self):
         self.reader.close()
         self.writer.close()
 
-    def _init_extractor(self):
-        """加载训练好的最佳模型，并复用 Predictor。"""
-        return load_predictor()
-
-    def sync_tag(self):
+    def sync_entities(self):
         sql = """
               SELECT id, description
               FROM spu_info
@@ -43,32 +39,50 @@ class TextSynchronizer:
 
         spu_ids = [item["id"] for item in spu_desc]
         descriptions = [item["description"] for item in spu_desc]
-        tags_list = self.extractor.extract(descriptions)
+        extracted_entities = self.extractor.extract(descriptions)
 
-        tag_properties = []
-        relations = []
-        for spu_id, tags in zip(spu_ids, tags_list):
-            # 同一个 SPU 内先去重，避免重复标签造成重复节点和重复关系。
-            seen_tags = set()
-            for tag in tags:
-                cleaned_tag = tag.strip()
-                if not cleaned_tag or cleaned_tag in seen_tags:
+        nodes_by_label = {label: [] for label in TEXT_ENTITY_NODE_LABELS.values()}
+        relations_by_label = {label: [] for label in TEXT_ENTITY_NODE_LABELS.values()}
+
+        for spu_id, entities in zip(spu_ids, extracted_entities):
+            normalized_entities = self.normalizer.normalize_entities(entities)
+            seen_entities = set()
+
+            for entity in normalized_entities:
+                canonical_name = entity["canonical_name"]
+                node_label = entity["node_label"]
+                dedupe_key = (node_label, canonical_name)
+                if dedupe_key in seen_entities:
                     continue
-                seen_tags.add(cleaned_tag)
+                seen_entities.add(dedupe_key)
 
-                # 这里用“SPU ID + 标签文本”生成稳定主键，方便重复同步时保持幂等。
-                tag_id = f"{spu_id}::{cleaned_tag}"
-                tag_properties.append({"id": tag_id, "name": cleaned_tag})
-                relations.append({"start_id": spu_id, "end_id": tag_id})
+                node_id = f"{entity['entity_type']}::{canonical_name}"
+                nodes_by_label[node_label].append(
+                    {
+                        "id": node_id,
+                        "name": canonical_name,
+                        "entity_type": entity["entity_type"],
+                    }
+                )
+                relations_by_label[node_label].append(
+                    {
+                        "start_id": spu_id,
+                        "end_id": node_id,
+                    }
+                )
 
-        self.writer.create_constraints(["Tag"])
-        self.writer.clear_spu_tag_relations(spu_ids)
-        self.writer.write_nodes("Tag", tag_properties)
-        self.writer.write_relations("Have", "SPU", "Tag", relations)
+        typed_labels = list(TEXT_ENTITY_NODE_LABELS.values())
+        self.writer.create_constraints(typed_labels)
+        self.writer.clear_spu_relations(spu_ids, typed_labels)
+
+        for label in typed_labels:
+            self.writer.write_nodes(label, nodes_by_label[label])
+            self.writer.write_relations("Have", "SPU", label, relations_by_label[label])
+
 
 if __name__ == "__main__":
     synchronizer = TextSynchronizer()
     try:
-        synchronizer.sync_tag()
+        synchronizer.sync_entities()
     finally:
         synchronizer.close()

@@ -4,7 +4,6 @@ import sys
 import time
 from pathlib import Path
 
-import evaluate
 import torch
 
 from datasets import load_from_disk
@@ -13,7 +12,6 @@ from transformers import (
     AutoTokenizer,
     DataCollatorForTokenClassification,
     EarlyStoppingCallback,
-    EvalPrediction,
     Trainer,
     TrainingArguments,
 )
@@ -45,6 +43,7 @@ from configuration.config import (
     SEED,
     ensure_project_dirs,
 )
+from ner.metrics import build_metrics
 
 def build_args():
     run_name = time.strftime("%Y-%m-%d-%H-%M-%S")
@@ -85,27 +84,8 @@ def build_args():
 
     return TrainingArguments(**kwargs)
 
-def build_metrics(id_to_label):
-    seqeval = evaluate.load("seqeval")
-    def compute_metrics(prediction: EvalPrediction):
-        logits = prediction.predictions
-        label_ids = prediction.label_ids
-        predictions = logits.argmax(axis=-1)
-
-        all_predictions = []
-        all_labels = []
-        for pred, label_id in zip(predictions, label_ids):
-            mask = label_id != -100
-            pred = [id_to_label[int(pred)] for pred in pred[mask]]
-            label_id = [id_to_label[int(label)] for label in label_id[mask]]
-            all_predictions.append(pred)
-            all_labels.append(label_id)
-
-        return seqeval.compute(predictions=all_predictions, references=all_labels)
-
-    return compute_metrics
-
 def train():
+    ensure_project_dirs()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForTokenClassification.from_pretrained(
         MODEL_NAME,
