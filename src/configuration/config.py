@@ -27,15 +27,15 @@ WEB_STATIC_DIR = ROOT_DIR / "src" / "web" / "static"
 RAW_DATA_FILE = RAW_DATA_DIR / "data.json"
 MODEL_NAME = "google-bert/bert-base-chinese"
 
-BATCH_SIZE = 8
-EPOCHS = 5
-LEARNING_RATE = 5e-5
-SAVE_STEPS = 20
-EARLY_STOPPING_PATIENCE = 20
+BATCH_SIZE = 16
+EPOCHS = 10
+LEARNING_RATE = 3e-5
+SAVE_STEPS = 100
+EARLY_STOPPING_PATIENCE = 8
 MAX_LENGTH = 128
 SEED = 42
 
-ENTITY_TYPES = ["CAT", "ATTR", "PEOPLE", "SPEC"]
+ENTITY_TYPES = ["ATTR", "PEOPLE", "SPEC"]
 LABELS = [
     "O",
     *[f"{prefix}-{entity_type}" for entity_type in ENTITY_TYPES for prefix in ("B", "I")],
@@ -44,7 +44,6 @@ LABEL_TO_ID = {label: index for index, label in enumerate(LABELS)}
 ID_TO_LABEL = {index: label for index, label in enumerate(LABELS)}
 
 TEXT_ENTITY_NODE_LABELS = {
-    "CAT": "CategoryTag",
     "ATTR": "AttributeTag",
     "PEOPLE": "PeopleTag",
     "SPEC": "SpecTag",
@@ -114,10 +113,6 @@ ENTITY_INDEX_CONFIG = {
         "fulltext_index": "category3_fulltext_index",
         "vector_index": "category3_vector_index",
     },
-    "CategoryTag": {
-        "fulltext_index": "category_tag_fulltext_index",
-        "vector_index": "category_tag_vector_index",
-    },
     "AttributeTag": {
         "fulltext_index": "attribute_tag_fulltext_index",
         "vector_index": "attribute_tag_vector_index",
@@ -132,8 +127,8 @@ ENTITY_INDEX_CONFIG = {
     },
 }
 
+
 def ensure_project_dirs() -> None:
-    """提前创建项目运行时依赖的目录结构。"""
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DATA_DIR.parent.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)

@@ -34,7 +34,7 @@ def get_entity_type(entity: dict) -> str:
     if entity_type not in ENTITY_TYPES:
         raise ValueError(
             f"Unsupported entity label '{entity_type}'. "
-            f"Please relabel data with CAT / ATTR / PEOPLE / SPEC."
+            f"Please relabel data with ATTR / PEOPLE / SPEC."
         )
     return entity_type
 
@@ -48,8 +48,9 @@ def encode_example(example, tokenizer):
         max_length=MAX_LENGTH,
     )
 
-    char_labels = [LABEL_TO_ID['O']] * len(tokens)
-    for entity in example["label"]:
+    char_labels = [LABEL_TO_ID["O"]] * len(tokens)
+    entities = example.get("label") or []
+    for entity in entities:
         start, end = entity["start"], entity["end"]
         if start >= len(tokens):
             continue
@@ -57,23 +58,23 @@ def encode_example(example, tokenizer):
         entity_type = get_entity_type(entity)
         end = min(end, len(tokens))
         char_labels[start] = LABEL_TO_ID[f"B-{entity_type}"]
-        for i in range(start + 1, end):
-            char_labels[i] = LABEL_TO_ID[f"I-{entity_type}"]
+        for index in range(start + 1, end):
+            char_labels[index] = LABEL_TO_ID[f"I-{entity_type}"]
 
     aligned_labels = []
-    preview_word_id = None
+    previous_word_id = None
     for word_id in tokenized.word_ids():
         if word_id is None:
             aligned_labels.append(-100)
             continue
 
         label_id = char_labels[word_id]
-        if word_id == preview_word_id and label_id != LABEL_TO_ID['O']:
+        if word_id == previous_word_id and label_id != LABEL_TO_ID["O"]:
             label_name = ID_TO_LABEL[label_id]
             if label_name.startswith("B-"):
                 label_id = LABEL_TO_ID[f"I-{label_name[2:]}"]
         aligned_labels.append(label_id)
-        preview_word_id = word_id
+        previous_word_id = word_id
 
     tokenized["labels"] = aligned_labels
     return tokenized
@@ -83,7 +84,14 @@ def process():
     ensure_project_dirs()
     dataset = load_dataset("json", data_files=str(RAW_DATA_FILE), split="train")
 
-    unused_columns = ["id", "annotator", "annotation_id", "created_at", "updated_at", "lead_time"]
+    unused_columns = [
+        "id",
+        "annotator",
+        "annotation_id",
+        "created_at",
+        "updated_at",
+        "lead_time",
+    ]
     dataset = dataset.remove_columns(unused_columns)
 
     dataset_dict = dataset.train_test_split(test_size=0.2, seed=SEED)
@@ -100,7 +108,5 @@ def process():
     dataset_dict.save_to_disk(str(PROCESSED_DATA_DIR))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     process()
-
-

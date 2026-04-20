@@ -37,4 +37,5 @@ Thumbs.db
 logs/
 checkpoints/
 data/ner/processed/
+data/ner/raw/old/
 *.log

@@ -10,7 +10,7 @@
 ## 项目亮点
 
 - 基于 BERT 的中文商品文本实体识别
-- 面向电商文本的 4 类结构化知识抽取：`CAT / ATTR / PEOPLE / SPEC`
+- 面向电商文本的 3 类结构化知识抽取：`ATTR / PEOPLE / SPEC`
 - 轻量标准化模块，支持同义词、人群、规格归一
 - MySQL 到 Neo4j 的知识图谱构建流程
 - 基于全文索引和向量索引的实体对齐
@@ -47,17 +47,15 @@ flowchart LR
 
 ## 实体标签设计
 
-项目中的文本实体采用 4 类标签：
+项目中的文本实体采用 3 类标签：
 
-- `CAT`：商品核心名、品类短语
-- `ATTR`：属性、功效、材质、风格
+- `ATTR`：属性、功效、材质、风格、卖点
 - `PEOPLE`：适用人群
 - `SPEC`：规格、数值、型号
 
 训练标签集合为：
 
 - `O`
-- `B-CAT` / `I-CAT`
 - `B-ATTR` / `I-ATTR`
 - `B-PEOPLE` / `I-PEOPLE`
 - `B-SPEC` / `I-SPEC`
@@ -143,7 +141,6 @@ src/configuration/entity_normalization.json
 
 商品文本抽取结果会写入以下节点类型：
 
-- `CategoryTag`
 - `AttributeTag`
 - `PeopleTag`
 - `SpecTag`
@@ -208,7 +205,6 @@ data/ner/raw/data.json
 
 实体标签需要使用：
 
-- `CAT`
 - `ATTR`
 - `PEOPLE`
 - `SPEC`
@@ -275,7 +271,6 @@ http://127.0.0.1:8000/
 
 训练数据中的实体标签需要是：
 
-- `CAT`
 - `ATTR`
 - `PEOPLE`
 - `SPEC`

@@ -16,7 +16,7 @@ from ner.predict import load_predictor
 
 
 class TextSynchronizer:
-    """Sync typed text entities extracted from SPU descriptions to Neo4j."""
+    """将从 SPU 描述中提取的输入文本实体同步至 Neo4j。"""
 
     def __init__(self):
         self.reader = MysqlReader()

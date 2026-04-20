@@ -12,7 +12,7 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
 class EntityNormalizer:
-    """Apply lightweight canonicalization to extracted typed entities."""
+    """Apply lightweight normalization to extracted typed entities."""
 
     def __init__(self, config_file: Path | None = None):
         self.config_file = Path(config_file or NORMALIZATION_CONFIG_FILE)
