@@ -38,4 +38,6 @@ logs/
 checkpoints/
 data/ner/processed/
 data/ner/raw/old/
+data/jd_gmall/
+tests/_tmp/
 *.log

@@ -27,6 +27,10 @@ class Neo4jWriter:
     def run_query(self, cypher: str, **parameters):
         return self.driver.execute_query(cypher, **parameters)
 
+    def query(self, cypher: str, **parameters) -> list[dict]:
+        records, _, _ = self.driver.execute_query(cypher, **parameters)
+        return [record.data() for record in records]
+
     def create_constraints(self, labels: list[str] | None = None):
         labels = labels or GRAPH_NODE_LABELS
         for label in labels:

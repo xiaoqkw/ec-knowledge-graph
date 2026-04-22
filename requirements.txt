@@ -4,6 +4,8 @@ pydantic
 python-dotenv
 pymysql
 neo4j
+requests
+PyYAML
 torch
 transformers
 datasets
@@ -18,3 +20,4 @@ langchain-neo4j
 neo4j-graphrag
 json-repair
 sympy
+tqdm
