@@ -4,333 +4,603 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>电商智能客服</title>
+    <title>电商导购与知识问答</title>
     <script src="/static/marked.min.js"></script>
     <script src="/static/purify.min.js"></script>
     <style>
         :root {
-            --border-radius: 16px;
-            --primary-color: #3b82f6;
-            --background-color: #f8f7f6;
-            --shadow-color: #00000056;
-            --input-box-bg-color: #ffffffcb;
+            --primary-color: #2563eb;
+            --primary-soft: #dbeafe;
+            --background-color: #f4f6fb;
+            --surface-color: #ffffff;
+            --border-color: #dbe2f0;
+            --text-color: #0f172a;
+            --muted-color: #64748b;
+            --shadow-color: rgba(15, 23, 42, 0.08);
+            --radius: 18px;
         }
 
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-            font-family: "Consolas", "微软雅黑", sans-serif;
+            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
         }
 
         body {
             min-height: 100vh;
-            background-color: var(--background-color);
+            background:
+                radial-gradient(circle at top left, #dbeafe 0, transparent 28%),
+                linear-gradient(180deg, #f8fbff 0%, var(--background-color) 100%);
+            color: var(--text-color);
             display: flex;
             flex-direction: column;
             align-items: center;
-            overflow-y: auto;
+            padding: 24px 16px;
+        }
+
+        .page {
+            width: 100%;
+            max-width: 960px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .hero {
+            background: rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 18px 40px var(--shadow-color);
+            border-radius: 28px;
+            padding: 24px;
+        }
+
+        .hero h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .hero p {
+            color: var(--muted-color);
+            line-height: 1.6;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--surface-color);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 12px 30px var(--shadow-color);
+        }
+
+        .mode-switch {
+            display: inline-flex;
+            gap: 8px;
+            padding: 6px;
+            border-radius: 999px;
+            background: #eef2ff;
+        }
+
+        .mode-button {
+            border: none;
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--muted-color);
+            background: transparent;
+            transition: all 0.2s ease;
+        }
+
+        .mode-button.active {
+            background: var(--surface-color);
+            color: var(--primary-color);
+            box-shadow: 0 6px 12px rgba(37, 99, 235, 0.12);
+        }
+
+        .toolbar-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .chip {
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--primary-soft);
+            color: var(--primary-color);
+            font-size: 13px;
+        }
+
+        .secondary-button {
+            border: 1px solid var(--border-color);
+            background: var(--surface-color);
+            color: var(--text-color);
+            border-radius: 12px;
+            padding: 10px 14px;
+            cursor: pointer;
         }
 
         #dialog-area {
-            flex: 1;
-            width: 100%;
-            max-width: 900px;
-            padding: 16px;
             display: flex;
             flex-direction: column;
+            gap: 14px;
+        }
+
+        .message-block {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
         .message-bubble {
-            display: inline-flex;
-            margin-bottom: 16px;
-            padding: 12px;
-            border-radius: var(--border-radius);
-            font-size: 16px;
-            line-height: 1.5;
-            word-break: break-word;
-            /* white-space: pre-wrap; */
-        }
-
-        .new-message {
-            animation: messageAppear 0.3s ease;
-        }
-
-        @keyframes messageAppear {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: none;
-            }
+            max-width: min(780px, 100%);
+            padding: 14px 16px;
+            border-radius: 18px;
+            line-height: 1.6;
+            box-shadow: 0 10px 24px var(--shadow-color);
+            animation: slide-in 0.2s ease;
         }
 
         .user-message {
-            background-color: var(--primary-color);
             align-self: flex-end;
-            color: white;
-            box-shadow: 0 2px 4px var(--shadow-color);
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
         }
 
         .bot-message {
             align-self: flex-start;
-            color: black;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .recommendation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            width: 100%;
+        }
+
+        .recommendation-card {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 14px;
+            box-shadow: 0 12px 24px var(--shadow-color);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .recommendation-card img {
+            width: 100%;
+            height: 140px;
+            object-fit: cover;
+            border-radius: 14px;
+            background: #e2e8f0;
+        }
+
+        .recommendation-card h3 {
+            font-size: 16px;
+        }
+
+        .recommendation-meta {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            color: var(--muted-color);
+            font-size: 13px;
+        }
+
+        .recommendation-price {
+            color: #dc2626;
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .recommendation-card p {
+            color: #334155;
+            font-size: 14px;
+            line-height: 1.6;
         }
 
         .input-box {
-            width: 100%;
-            max-width: 900px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(12px);
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 18px 40px var(--shadow-color);
             padding: 16px;
-            border-radius: var(--border-radius);
-            box-shadow: 0 4px 8px var(--shadow-color);
             position: sticky;
             bottom: 16px;
-            transition: all 0.3s ease;
-            background-color: var(--input-box-bg-color);
-            border: 2px solid transparent;
-
-            &:hover {
-                box-shadow: 0 4px 8px var(--primary-color);
-            }
-
-            &:focus-within {
-                border: 2px solid var(--primary-color);
-            }
         }
 
         #user-input {
             width: 100%;
-            padding: 8px;
-            font-size: 16px;
-            max-height: 200px;
-            overflow-y: auto;
+            min-height: 92px;
+            max-height: 220px;
             resize: none;
             border: none;
             outline: none;
-            background-color: #ffffff00;
+            background: transparent;
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-color);
+        }
+
+        .input-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .hint {
+            color: var(--muted-color);
+            font-size: 13px;
         }
 
         #send-btn {
-            padding: 8px 16px;
-            color: white;
             border: none;
-            border-radius: 8px;
-            font-size: 16px;
+            border-radius: 12px;
+            padding: 10px 18px;
+            background: var(--primary-color);
+            color: #ffffff;
             cursor: pointer;
-            transition: all 0.3s ease;
-            margin-left: auto;
-            display: block;
-            background-color: var(--primary-color);
-
-            &:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 8px var(--shadow-color);
-            }
-
-            &:active {
-                transform: translateY(0);
-            }
-
-            &:disabled {
-                background-color: #cccccc;
-                cursor: not-allowed;
-                transform: none !important;
-                box-shadow: none !important;
-            }
+            font-size: 15px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
-        .loading-container {
-            display: flex;
+        #send-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 22px rgba(37, 99, 235, 0.24);
+        }
+
+        #send-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .loading {
+            display: inline-flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
 
         .loader {
-            width: 30px;
-            height: 30px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid var(--primary-color);
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
+            border: 3px solid #cbd5e1;
+            border-top-color: var(--primary-color);
             animation: spin 1s linear infinite;
         }
 
+        .markdown-content p,
+        .markdown-content ul,
+        .markdown-content ol,
+        .markdown-content pre {
+            margin: 0.6em 0;
+        }
+
+        .markdown-content code {
+            background: #eff6ff;
+            padding: 0.15em 0.4em;
+            border-radius: 6px;
+        }
+
+        .markdown-content pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 14px;
+            overflow-x: auto;
+        }
+
+        @keyframes slide-in {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         @keyframes spin {
-            0% {
+            from {
                 transform: rotate(0deg);
             }
 
-            100% {
+            to {
                 transform: rotate(360deg);
             }
         }
 
-        .markdown-content {
-            max-width: 100%;
-            overflow-x: auto;
-        }
+        @media (max-width: 768px) {
+            .toolbar,
+            .input-footer {
+                flex-direction: column;
+                align-items: stretch;
+            }
 
-        .markdown-content br {
-            display: none;
-        }
-
-        .markdown-content h1,
-        .markdown-content h2,
-        .markdown-content h3 {
-            margin: 1em 0 0.5em;
-            color: var(--primary-color);
-        }
-
-        .markdown-content p {
-            margin: 0.5em 0;
-            line-height: 1.6;
-        }
-
-        .markdown-content ul,
-        .markdown-content ol {
-            margin: 0.5em 0;
-            padding-left: 2em;
-        }
-
-        .markdown-content code {
-            background-color: rgba(192, 192, 192, 0.2);
-            padding: 0.2em 0.4em;
-            border-radius: 4px;
-            font-family: Consolas, monospace;
-        }
-
-        .markdown-content pre {
-            background-color: #f6f8fa;
-            padding: 1em;
-            border-radius: var(--border-radius);
-            overflow-x: auto;
-            margin: 1em 0;
-        }
-
-        .markdown-content pre code {
-            background: none;
-            padding: 0;
+            .toolbar-actions {
+                justify-content: space-between;
+            }
         }
     </style>
 </head>
 
 <body>
-    <div id="dialog-area">
-        <div class="bot-message message-bubble">您好！我是电商智能客服，请问有什么需要我帮忙的？</div>
-    </div>
-    <div class="input-box">
-        <textarea id="user-input" placeholder="需要我做什么？"></textarea>
-        <button id="send-btn" onclick="sendMessage()">发送</button>
+    <div class="page">
+        <section class="hero">
+            <h1>知识图谱导购与问答</h1>
+            <p>导购模式支持多轮手机推荐：预算、品牌、机身存储和用途会逐轮累计；问答模式为知识图谱单轮问答链路。</p>
+        </section>
+
+        <section class="toolbar">
+            <div class="mode-switch">
+                <button id="dialogue-mode-btn" class="mode-button active" data-mode="dialogue">导购对话</button>
+                <button id="qa-mode-btn" class="mode-button" data-mode="qa">知识问答</button>
+            </div>
+            <div class="toolbar-actions">
+                <div id="mode-tip" class="chip">当前模式：手机导购</div>
+                <button id="reset-btn" class="secondary-button">重新开始</button>
+            </div>
+        </section>
+
+        <section id="dialog-area">
+            <div class="message-block">
+                <div class="message-bubble bot-message">
+                    你好，我现在可以做两件事：
+                    <br>1. 多轮手机导购，例如“想买手机，预算 4000 左右”
+                    <br>2. 单轮知识问答，例如“Apple 都有哪些产品”
+                </div>
+            </div>
+        </section>
+
+        <section class="input-box">
+            <textarea id="user-input" placeholder="输入你的问题或导购需求，例如：想买手机，预算 5000 以内，更看重拍照"></textarea>
+            <div class="input-footer">
+                <div class="hint" id="mode-hint">导购模式会自动记住本轮会话条件。</div>
+                <button id="send-btn">发送</button>
+            </div>
+        </section>
     </div>
 
     <script>
         const dialogArea = document.getElementById('dialog-area');
         const input = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
-        const loadingBubble = createLoadingBubble();
-        marked.setOptions({
-            breaks: false,
-            highlight: function (code) {
-                return hljs.highlightAuto(code).value;
-            }
-        });
+        const resetBtn = document.getElementById('reset-btn');
+        const modeButtons = document.querySelectorAll('.mode-button');
+        const modeTip = document.getElementById('mode-tip');
+        const modeHint = document.getElementById('mode-hint');
 
-        // 发送消息
-        async function sendMessage() {
-            // 获取用户输入
-            const message = input.value.trim();
-            if (!message) return;
-            // 禁用发送按钮
-            sendBtn.disabled = true;
-            // 发送消息
-            addMessage(message, true);
-            // 清空输入框并恢复高度
-            input.value = '';
-            input.style.height = 'auto';
-            // 添加加载状态
-            dialogArea.appendChild(loadingBubble);
-            window.scrollTo(0, document.body.scrollHeight);
-            // 获取回复
-            try {
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message })
-                });
-                const data = await response.json();
-                responseContent = data.message;
-            } catch (error) {
-                responseContent = '系统暂时无法响应，请稍后再试😥';
+        let currentMode = 'dialogue';
+        let dialogueSessionId = null;
+
+        marked.setOptions({ breaks: false });
+
+        function setMode(mode) {
+            currentMode = mode;
+            modeButtons.forEach((button) => {
+                button.classList.toggle('active', button.dataset.mode === mode);
+            });
+
+            if (mode === 'dialogue') {
+                modeTip.textContent = '当前模式：手机导购';
+                modeHint.textContent = '导购模式会自动记住本轮会话条件。';
+                input.placeholder = '例如：想买手机，预算 5000 以内，更看重拍照';
+                resetBtn.disabled = false;
+            } else {
+                modeTip.textContent = '当前模式：知识问答';
+                modeHint.textContent = '问答模式保持单轮，不保存会话状态。';
+                input.placeholder = '例如：Apple 都有哪些产品';
+                resetBtn.disabled = true;
             }
-            // 移除加载状态
-            loadingBubble.remove();
-            // 发送回复消息
-            if (responseContent != null) {
-                addMessage(responseContent, false);
-            }
-            // 启用发送按钮
-            sendBtn.disabled = false;
         }
 
-        // 自动调整输入框高度
-        document.getElementById('user-input').addEventListener('input', () => {
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+        modeButtons.forEach((button) => {
+            button.addEventListener('click', () => setMode(button.dataset.mode));
         });
 
-        // 监听回车键
-        document.getElementById('user-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
+        resetBtn.addEventListener('click', () => {
+            dialogueSessionId = null;
+            addBotMessage('已清空当前导购会话。你可以重新告诉我预算、品牌或用途。');
+        });
+
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+        });
+
+        input.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 sendMessage();
             }
         });
 
-        // 创建加载状态的气泡
-        function createLoadingBubble() {
-            const bubble = document.createElement('div');
-            bubble.classList.add('message-bubble', 'bot-message', 'new-message');
-            const loadingContainer = document.createElement('div');
-            loadingContainer.className = 'loading-container';
-            const loader = document.createElement('div');
-            loader.className = 'loader';
-            loadingContainer.appendChild(loader);
-            loadingContainer.appendChild(document.createTextNode('正在思索中...'));
-            bubble.appendChild(loadingContainer);
-            return bubble;
+        sendBtn.addEventListener('click', sendMessage);
+
+        async function sendMessage() {
+            const message = input.value.trim();
+            if (!message) {
+                return;
+            }
+
+            addUserMessage(message);
+            input.value = '';
+            input.style.height = 'auto';
+            sendBtn.disabled = true;
+
+            const loadingNode = createLoadingNode();
+            dialogArea.appendChild(loadingNode);
+            window.scrollTo(0, document.body.scrollHeight);
+
+            try {
+                if (currentMode === 'dialogue') {
+                    await sendDialogueTurn(message);
+                } else {
+                    await sendQaTurn(message);
+                }
+            } catch (error) {
+                addBotMessage(error.message || '系统暂时无法响应，请稍后再试。');
+            } finally {
+                loadingNode.remove();
+                sendBtn.disabled = false;
+            }
         }
 
-        // 添加消息气泡
-        function addMessage(content, isUser) {
-            const bubble = document.createElement('div');
-            // 设置气泡样式
-            bubble.classList.add('message-bubble', isUser ? 'user-message' : 'bot-message', 'new-message');
-            // 如果传入的是字符串则创建文本
-            if (!isUser) {
-                // 机器人回复转换为markdown格式
-                const markdownContainer = document.createElement('div');
-                markdownContainer.className = 'markdown-content';
-                const dirty = marked.parse(content.toString());
-                markdownContainer.innerHTML = DOMPurify.sanitize(dirty, {
-                    ADD_TAGS: ["iframe"],
-                    ADD_ATTR: ["allowfullscreen"]
-                });
-                bubble.appendChild(markdownContainer);
-            } else {
-                bubble.textContent = content;
-            }
-            // 添加气泡动态效果
-            bubble.addEventListener('animationend', function handler() {
-                this.classList.remove('new-message');
-                this.removeEventListener('animationend', handler);
+        async function sendDialogueTurn(message) {
+            const response = await fetch('/api/dialogue/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message,
+                    session_id: dialogueSessionId,
+                }),
             });
-            // 对话框添加气泡
-            dialogArea.appendChild(bubble);
+
+            const payload = await parseResponse(response);
+            dialogueSessionId = payload.session_id;
+            addBotMessage(payload.message);
+
+            if (Array.isArray(payload.recommendations) && payload.recommendations.length > 0) {
+                addRecommendationCards(payload.recommendations);
+            }
+        }
+
+        async function sendQaTurn(message) {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message }),
+            });
+
+            const payload = await parseResponse(response);
+            addBotMessage(payload.message);
+        }
+
+        async function parseResponse(response) {
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const detail = payload.detail || payload.message || '请求失败';
+                throw new Error(detail);
+            }
+            return payload;
+        }
+
+        function createLoadingNode() {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-block';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble bot-message';
+            bubble.innerHTML = '<div class="loading"><div class="loader"></div><span>正在处理中...</span></div>';
+
+            wrapper.appendChild(bubble);
+            return wrapper;
+        }
+
+        function addUserMessage(content) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-block';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble user-message';
+            bubble.textContent = content;
+
+            wrapper.appendChild(bubble);
+            dialogArea.appendChild(wrapper);
             window.scrollTo(0, document.body.scrollHeight);
         }
 
+        function addBotMessage(content) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-block';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble bot-message';
+
+            const container = document.createElement('div');
+            container.className = 'markdown-content';
+            const dirty = marked.parse(String(content));
+            container.innerHTML = DOMPurify.sanitize(dirty);
+            bubble.appendChild(container);
+
+            wrapper.appendChild(bubble);
+            dialogArea.appendChild(wrapper);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        function addRecommendationCards(recommendations) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-block';
+
+            const grid = document.createElement('div');
+            grid.className = 'recommendation-grid';
+
+            recommendations.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'recommendation-card';
+
+                const image = document.createElement('img');
+                image.src = item.default_img || '';
+                image.alt = item.spu_name;
+                image.loading = 'lazy';
+                image.onerror = () => {
+                    image.style.display = 'none';
+                };
+
+                const title = document.createElement('h3');
+                title.textContent = `${index + 1}. ${item.spu_name}`;
+
+                const meta = document.createElement('div');
+                meta.className = 'recommendation-meta';
+                meta.innerHTML = `
+                    <span>品牌：${item.brand}</span>
+                    <span>SKU：${item.sku_id}</span>
+                `;
+
+                const price = document.createElement('div');
+                price.className = 'recommendation-price';
+                price.textContent = `¥${Math.round(item.price)}`;
+
+                const storage = document.createElement('div');
+                storage.className = 'recommendation-meta';
+                storage.textContent = item.storage_options?.length
+                    ? `可选存储：${item.storage_options.join(' / ')}`
+                    : '可选存储：未标注';
+
+                const reason = document.createElement('p');
+                reason.textContent = item.reason;
+
+                card.appendChild(image);
+                card.appendChild(title);
+                card.appendChild(meta);
+                card.appendChild(price);
+                card.appendChild(storage);
+                card.appendChild(reason);
+                grid.appendChild(card);
+            });
+
+            wrapper.appendChild(grid);
+            dialogArea.appendChild(wrapper);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
     </script>
 </body>
 

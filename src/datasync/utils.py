@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pymysql
 from neo4j import GraphDatabase
 from pymysql.cursors import DictCursor
@@ -25,7 +27,11 @@ class Neo4jWriter:
         self.driver.close()
 
     def run_query(self, cypher: str, **parameters):
-        return self.driver.execute_query(cypher, **parameters)
+        normalized = {
+            key: self._normalize_value(value)
+            for key, value in parameters.items()
+        }
+        return self.driver.execute_query(cypher, **normalized)
 
     def query(self, cypher: str, **parameters) -> list[dict]:
         records, _, _ = self.driver.execute_query(cypher, **parameters)
@@ -81,3 +87,18 @@ class Neo4jWriter:
 
     def clear_spu_tag_relations(self, spu_ids: list[int]):
         self.clear_spu_relations(spu_ids, ["Tag"])
+
+    @classmethod
+    def _normalize_value(cls, value):
+        if isinstance(value, Decimal):
+            return int(value) if value == value.to_integral_value() else float(value)
+        if isinstance(value, dict):
+            return {
+                key: cls._normalize_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._normalize_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(cls._normalize_value(item) for item in value)
+        return value

@@ -142,7 +142,10 @@ class TableSynchronizer:
     def sync_spu(self):
         sql = """
             SELECT id,
-                   spu_name AS name
+                   spu_name AS name,
+                   description,
+                   category3_id,
+                   tm_id
             FROM spu_info
         """
         self.writer.write_nodes("SPU", self.reader.read(sql))
@@ -150,7 +153,14 @@ class TableSynchronizer:
     def sync_sku(self):
         sql = """
             SELECT id,
-                   sku_name AS name
+                   sku_name AS name,
+                   price,
+                   sku_desc,
+                   sku_default_img AS default_img,
+                   is_sale,
+                   spu_id,
+                   tm_id,
+                   category3_id
             FROM sku_info
         """
         self.writer.write_nodes("SKU", self.reader.read(sql))
@@ -257,9 +267,17 @@ class TableSynchronizer:
 
     def sync_sku_to_base_attr_value(self):
         sql = """
-            SELECT sku_id AS start_id,
-                   value_id AS end_id
-            FROM sku_attr_value
+            SELECT DISTINCT
+                   link.sku_id AS start_id,
+                   COALESCE(exact_match.id, fallback_match.id) AS end_id
+            FROM sku_attr_value link
+            LEFT JOIN base_attr_value exact_match
+              ON exact_match.id = link.value_id
+            LEFT JOIN base_attr_value fallback_match
+              ON exact_match.id IS NULL
+             AND fallback_match.attr_id = link.attr_id
+             AND fallback_match.value_name = link.value_name
+            WHERE COALESCE(exact_match.id, fallback_match.id) IS NOT NULL
         """
         self.writer.write_relations(
             "Have",

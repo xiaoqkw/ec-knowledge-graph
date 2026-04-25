@@ -2,10 +2,9 @@ import sys
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from starlette.responses import RedirectResponse
 from starlette.staticfiles import StaticFiles
-
 
 CURRENT_DIR = Path(__file__).resolve()
 SRC_DIR = CURRENT_DIR.parents[1]
@@ -13,27 +12,73 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from configuration.config import WEB_STATIC_DIR
-from web.schemas import Answer, Question
+from dialogue import DialogueService
+from web.schemas import Answer, DialogueTurnRequest, DialogueTurnResponse, Question
 from web.service import ChatService
 
 
-app = FastAPI(title="电商知识图谱问答服务")
+app = FastAPI(title="电商知识图谱问答与导购服务")
 app.mount("/static", StaticFiles(directory=WEB_STATIC_DIR), name="static")
 
-service = ChatService()
+dialogue_service = DialogueService()
+qa_service: ChatService | None = None
+qa_service_error: str | None = None
+
+
+def get_qa_service() -> ChatService | None:
+    global qa_service, qa_service_error
+    if qa_service is not None:
+        return qa_service
+    if qa_service_error is not None:
+        return None
+
+    try:
+        qa_service = ChatService()
+    except Exception as exc:
+        qa_service_error = str(exc)
+        return None
+    return qa_service
+
+
+def run_qa(message: str) -> str | None:
+    service = get_qa_service()
+    if service is None:
+        return None
+    return service.chat(message)
 
 
 @app.get("/")
 def read_root():
-    """访问根路径时直接跳转到静态前端页面。"""
     return RedirectResponse("/static/index.html")
 
 
 @app.post("/api/chat")
 def chat_api(question: Question) -> Answer:
-    """接收前端问题文本，返回知识图谱问答结果。"""
+    service = get_qa_service()
+    if service is None:
+        raise HTTPException(
+            status_code=503,
+            detail=qa_service_error or "Knowledge graph QA is not enabled in the current environment.",
+        )
     result = service.chat(question.message)
     return Answer(message=result)
+
+
+@app.post("/api/dialogue/chat")
+def dialogue_chat_api(turn: DialogueTurnRequest) -> DialogueTurnResponse:
+    result = dialogue_service.chat(
+        turn.message,
+        session_id=turn.session_id,
+        qa_handler=run_qa,
+    )
+    return DialogueTurnResponse(**result)
+
+
+@app.on_event("shutdown")
+def close_services() -> None:
+    dialogue_service.close()
+    if qa_service is not None:
+        qa_service.close()
 
 
 if __name__ == "__main__":

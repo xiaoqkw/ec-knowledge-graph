@@ -3,7 +3,6 @@ import os
 import sys
 from pathlib import Path
 
-from json_repair import repair_json
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_deepseek import ChatDeepSeek
@@ -26,6 +25,11 @@ from configuration.config import (
     ENTITY_INDEX_CONFIG,
     NEO4J_CONFIG,
 )
+
+try:
+    from json_repair import repair_json
+except ImportError:
+    repair_json = None
 
 
 class ChatService:
@@ -55,6 +59,13 @@ class ChatService:
 
         self.json_parser = JsonOutputParser()
         self.str_parser = StrOutputParser()
+
+    def close(self) -> None:
+        graph = getattr(self, "graph", None)
+        if graph is not None:
+            driver = getattr(graph, "_driver", None)
+            if driver is not None:
+                driver.close()
 
     def _build_vector(self, label: str, index_info: dict) -> Neo4jVector:
         """根据标签对应的全文索引和向量索引构建混合检索器。"""
@@ -124,7 +135,7 @@ class ChatService:
         results = self.llm.invoke(rendered_prompt)
         content = getattr(results, "content",str(results))
 
-        repaired = repair_json(content, ensure_ascii=False)
+        repaired = repair_json(content, ensure_ascii=False) if repair_json is not None else content
         return self.json_parser.invoke(repaired)
 
     def _entity_align(self, entities_to_align: list[dict]) -> list[dict]:

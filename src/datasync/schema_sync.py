@@ -10,12 +10,27 @@ from configuration.config import GRAPH_NODE_LABELS
 from datasync.utils import Neo4jWriter
 
 
+def create_dialogue_indexes(writer: Neo4jWriter) -> None:
+    writer.run_query(
+        """
+        CREATE RANGE INDEX sku_price_range_index IF NOT EXISTS
+        FOR (n:SKU) ON (n.price)
+        """
+    )
+    writer.run_query(
+        """
+        CREATE RANGE INDEX sku_is_sale_range_index IF NOT EXISTS
+        FOR (n:SKU) ON (n.is_sale)
+        """
+    )
+
+
 def create_schema() -> None:
-    """创建同步脚本依赖的 Neo4j 唯一约束。"""
     writer = Neo4jWriter()
     try:
         writer.create_constraints(GRAPH_NODE_LABELS)
-        print("Neo4j 唯一约束已创建，或本来就已存在。")
+        create_dialogue_indexes(writer)
+        print("Neo4j constraints and dialogue indexes are ready.")
     finally:
         writer.close()
 
