@@ -390,6 +390,7 @@
 
         let currentMode = 'dialogue';
         let dialogueSessionId = null;
+        let qaSessionId = null;
 
         marked.setOptions({ breaks: false });
 
@@ -406,9 +407,9 @@
                 resetBtn.disabled = false;
             } else {
                 modeTip.textContent = '当前模式：知识问答';
-                modeHint.textContent = '问答模式保持单轮，不保存会话状态。';
+                modeHint.textContent = '问答模式会记住最近几轮上下文，方便连续追问。';
                 input.placeholder = '例如：Apple 都有哪些产品';
-                resetBtn.disabled = true;
+                resetBtn.disabled = false;
             }
         }
 
@@ -418,7 +419,12 @@
 
         resetBtn.addEventListener('click', () => {
             dialogueSessionId = null;
-            addBotMessage('已清空当前导购会话。你可以重新告诉我预算、品牌或用途。');
+            qaSessionId = null;
+            if (currentMode === 'dialogue') {
+                addBotMessage('已清空当前导购会话。你可以重新告诉我预算、品牌或用途。');
+                return;
+            }
+            addBotMessage('已清空当前知识问答上下文。你可以重新开始提问。');
         });
 
         input.addEventListener('input', () => {
@@ -487,10 +493,14 @@
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message }),
+                body: JSON.stringify({
+                    message,
+                    session_id: qaSessionId,
+                }),
             });
 
             const payload = await parseResponse(response);
+            qaSessionId = payload.session_id;
             addBotMessage(payload.message);
         }
 

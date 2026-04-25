@@ -161,6 +161,21 @@ class DialogueServiceTestCase(unittest.TestCase):
         self.assertEqual(response["recommendations"][0]["sku_id"], 8)
         self.assertFalse(self.service.store.snapshot(session.session_id).awaiting_budget_confirmation)
 
+    def test_reject_budget_suggestion_on_negative_reply(self):
+        session = self.service.store.get_or_create(None)
+        session.slots.update({"brand": "苹果", "budget_max": 4000, "use_case": "拍照"})
+        session.awaiting_budget_confirmation = True
+        session.suggested_budget_min = 8197
+        self.service.store.save(session)
+
+        self.nlu.queue("inform", {})
+        response = self.service.chat("不可以，太贵了", session.session_id)
+        self.assertEqual(response["action"], "ask_slot")
+        self.assertEqual(self.retriever.calls[-1]["budget_max"], 4000)
+        snapshot = self.service.store.snapshot(session.session_id)
+        self.assertEqual(snapshot.slots["budget_max"], 4000)
+        self.assertTrue(snapshot.awaiting_budget_confirmation)
+
     def test_accept_budget_suggestion_keeps_new_slots(self):
         session = self.service.store.get_or_create(None)
         session.slots.update({"brand": "苹果", "budget_max": 4000, "use_case": "拍照"})
@@ -182,6 +197,47 @@ class DialogueServiceTestCase(unittest.TestCase):
         self.assertEqual(snapshot.slots["brand"], "华为")
         self.assertEqual(snapshot.slots["budget_max"], 8197)
         self.assertFalse(snapshot.awaiting_budget_confirmation)
+
+    def test_compare_takes_precedence_over_budget_confirmation(self):
+        session = self.service.store.get_or_create(None)
+        session.slots.update({"brand": "苹果", "budget_max": 4000, "use_case": "拍照"})
+        session.awaiting_budget_confirmation = True
+        session.suggested_budget_min = 8197
+        session.last_recommendation_spu_ids = [19, 18]
+        self.service.store.save(session)
+
+        self.nlu.queue("compare", {})
+        response = self.service.chat("可以，把前两个比一下", session.session_id)
+        self.assertEqual(response["action"], "compare")
+        snapshot = self.service.store.snapshot(session.session_id)
+        self.assertEqual(snapshot.slots["budget_max"], 4000)
+        self.assertTrue(snapshot.awaiting_budget_confirmation)
+
+    def test_new_budget_overrides_suggested_budget(self):
+        session = self.service.store.get_or_create(None)
+        session.slots.update({"brand": "苹果", "budget_max": 4000, "use_case": "拍照"})
+        session.awaiting_budget_confirmation = True
+        session.suggested_budget_min = 8197
+        self.service.store.save(session)
+
+        expected_key = (
+            ("brand", "华为"),
+            ("budget_max", 9000),
+            ("use_case", "拍照"),
+        )
+        self.retriever.results[expected_key] = [
+            build_item(41, 18, "Mate 40 Pro", 8999),
+        ]
+
+        self.nlu.queue("inform", {"brand": "华为", "budget_max": 9000})
+        response = self.service.chat("可以，那就9000吧，我更想要华为", session.session_id)
+        self.assertEqual(response["action"], "recommend")
+        self.assertEqual(response["recommendations"][0]["sku_id"], 41)
+        self.assertEqual(self.retriever.calls[-1]["budget_max"], 9000)
+        snapshot = self.service.store.snapshot(session.session_id)
+        self.assertEqual(snapshot.slots["brand"], "华为")
+        self.assertEqual(snapshot.slots["budget_max"], 9000)
+        self.assertTrue(snapshot.awaiting_budget_confirmation is False)
 
 
 if __name__ == "__main__":

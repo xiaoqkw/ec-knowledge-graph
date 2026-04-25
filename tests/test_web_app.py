@@ -11,6 +11,7 @@ if str(SRC_DIR) not in sys.path:
 try:
     from fastapi.testclient import TestClient
     import web.app
+    from web.memory import InMemoryQASessionStore
 except ImportError:
     TestClient = None
     web = None
@@ -18,6 +19,48 @@ except ImportError:
 
 @unittest.skipIf(TestClient is None, "fastapi is not installed in the current environment")
 class WebAppTestCase(unittest.TestCase):
+    def test_chat_keeps_session_history(self):
+        class StubQAService:
+            def __init__(self):
+                self.calls = []
+
+            def chat(self, message, history=None):
+                captured_history = [dict(item) for item in (history or [])]
+                self.calls.append((message, captured_history))
+                return f"answer:{message}"
+
+        qa_stub = StubQAService()
+        with patch.object(web.app, "qa_service", qa_stub), patch.object(
+            web.app,
+            "qa_service_error",
+            None,
+        ), patch.object(
+            web.app,
+            "qa_session_store",
+            InMemoryQASessionStore(),
+        ):
+            client = TestClient(web.app.app)
+
+            first = client.post("/api/chat", json={"message": "Apple 都有哪些产品"})
+            self.assertEqual(first.status_code, 200)
+            first_payload = first.json()
+            self.assertTrue(first_payload["session_id"])
+
+            second = client.post(
+                "/api/chat",
+                json={
+                    "message": "那它有哪些手机",
+                    "session_id": first_payload["session_id"],
+                },
+            )
+            self.assertEqual(second.status_code, 200)
+            self.assertEqual(second.json()["session_id"], first_payload["session_id"])
+            self.assertEqual(qa_stub.calls[0][1], [])
+            self.assertEqual(
+                qa_stub.calls[1][1],
+                [{"user": "Apple 都有哪些产品", "assistant": "answer:Apple 都有哪些产品"}],
+            )
+
     def test_chat_returns_503_when_qa_not_enabled(self):
         with patch.object(web.app, "qa_service", None), patch.object(
             web.app,

@@ -9,7 +9,6 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_neo4j import Neo4jGraph, Neo4jVector
 from neo4j_graphrag.types import SearchType
-from sympy.physics.vector.printing import params
 
 CURRENT_DIR = Path(__file__).resolve()
 SRC_DIR = CURRENT_DIR.parents[1]
@@ -18,7 +17,7 @@ if str(SRC_DIR) not in sys.path:
 
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
-from configuration.config import (
+from configuration.config import (  # noqa: E402
     DEEPSEEK_API_KEY,
     DEEPSEEK_MODEL,
     EMBEDDING_MODEL_NAME,
@@ -50,13 +49,10 @@ class ChatService:
             raise ValueError("未检测到 DEEPSEEK_API_KEY，请先在 .env 中配置。")
 
         self.llm = ChatDeepSeek(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY)
-
-        # 为可对齐的实体标签初始化混合检索对象。
         self.neo4j_vectors = {
             label: self._build_vector(label, index_info)
             for label, index_info in ENTITY_INDEX_CONFIG.items()
         }
-
         self.json_parser = JsonOutputParser()
         self.str_parser = StrOutputParser()
 
@@ -79,9 +75,9 @@ class ChatService:
             search_type=SearchType.HYBRID,
         )
 
-    def chat(self, question: str) -> str:
+    def chat(self, question: str, history: list[dict[str, str]] | None = None) -> str:
         """执行完整问答流程，并返回自然语言答案。"""
-        result = self._generate_cypher(question)
+        result = self._generate_cypher(question, history=history)
         cypher = result["cypher_query"]
         entities_to_align = result["entities_to_align"]
         print("生成的 Cypher:", cypher)
@@ -93,28 +89,36 @@ class ChatService:
         query_result = self._execute_cypher(cypher, aligned_entities)
         print("图谱查询结果:", query_result)
 
-        answer = self._generate_answer(question, query_result)
+        answer = self._generate_answer(question, query_result, history=history)
         print("最终回答:", answer)
         return answer
 
-    def _generate_cypher(self, question: str) -> dict:
+    def _generate_cypher(
+        self,
+        question: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict:
         """根据用户问题和图谱 schema 生成参数化 Cypher。"""
         prompt = """
 你是一个专业的 Neo4j Cypher 查询生成器。
 
 你的任务：
-根据用户问题和知识图谱结构信息，生成一条参数化 Cypher 查询语句，并列出需要做实体对齐的参数。
+根据用户当前问题、最近对话历史和知识图谱结构信息，生成一条参数化 Cypher 查询语句，并列出需要做实体对齐的参数。
 
-用户问题：{question}
+最近对话历史（可能为空）：
+{history_text}
+
+当前用户问题：{question}
 
 知识图谱结构信息：{schema_info}
 
 要求：
-1. 只输出 JSON，不要输出解释说明。
-2. Cypher 中必须使用参数化占位符，例如 $param_0、$param_1。
-3. entities_to_align 中列出所有需要做实体对齐的参数。
-4. label 字段只能使用图谱中真实存在的节点标签。
-5. 如果问题不需要实体对齐，entities_to_align 返回空列表。
+1. 如果当前问题出现“它 / 这个 / 那个 / 这些 / 那些”等省略指代，可以结合最近历史恢复指代对象，但不要编造历史中不存在的实体或约束。
+2. 只输出 JSON，不要输出解释说明。
+3. Cypher 中必须使用参数化占位符，例如 $param_0、$param_1。
+4. entities_to_align 中列出所有需要做实体对齐的参数。
+5. label 字段只能使用图谱中真实存在的节点标签。
+6. 如果问题不需要实体对齐，entities_to_align 返回空列表。
 
 输出格式：
 {{
@@ -130,10 +134,11 @@ class ChatService:
 """
         rendered_prompt = PromptTemplate.from_template(prompt).format(
             question=question,
+            history_text=self._format_history(history),
             schema_info=self.graph.schema,
         )
         results = self.llm.invoke(rendered_prompt)
-        content = getattr(results, "content",str(results))
+        content = getattr(results, "content", str(results))
 
         repaired = repair_json(content, ensure_ascii=False) if repair_json is not None else content
         return self.json_parser.invoke(repaired)
@@ -155,31 +160,40 @@ class ChatService:
                 continue
 
             aligned_entity = results[0].page_content
-            aligned_entities.append({
-                "param_name": item["param_name"],
-                "entity": aligned_entity,
-                "label": label,
-            })
+            aligned_entities.append(
+                {
+                    "param_name": item["param_name"],
+                    "entity": aligned_entity,
+                    "label": label,
+                }
+            )
 
         return aligned_entities
 
     def _execute_cypher(self, cypher: str, aligned_entities: list[dict]):
         """将对齐结果转换为参数字典后执行 Cypher。"""
         params = {
-            item["param_name"]:item["entity"]
+            item["param_name"]: item["entity"]
             for item in aligned_entities
         }
-
         return self.graph.query(cypher, params=params)
 
-    def _generate_answer(self, question: str, query_result) -> str:
+    def _generate_answer(
+        self,
+        question: str,
+        query_result,
+        history: list[dict[str, str]] | None = None,
+    ) -> str:
         """把图查询结果整理成用户可读的自然语言回答。"""
         prompt = """
 你是一名电商智能客服。
 
-请根据用户问题和知识图谱查询结果，生成一段简洁、准确、自然的中文回答。
+请根据用户当前问题、最近对话历史和知识图谱查询结果，生成一段简洁、准确、自然的中文回答。
 
-用户问题：{question}
+最近对话历史（可能为空）：
+{history_text}
+
+当前用户问题：{question}
 
 查询结果：{query_result}
 
@@ -190,10 +204,27 @@ class ChatService:
 """
         rendered_prompt = PromptTemplate.from_template(prompt).format(
             question=question,
+            history_text=self._format_history(history),
             query_result=json.dumps(query_result, ensure_ascii=False),
         )
         output = self.llm.invoke(rendered_prompt)
         return self.str_parser.invoke(output)
+
+    @staticmethod
+    def _format_history(history: list[dict[str, str]] | None) -> str:
+        if not history:
+            return "无"
+
+        lines = []
+        for turn in history:
+            user_message = turn.get("user", "").strip()
+            assistant_message = turn.get("assistant", "").strip()
+            if user_message:
+                lines.append(f"用户: {user_message}")
+            if assistant_message:
+                lines.append(f"助手: {assistant_message}")
+        return "\n".join(lines) if lines else "无"
+
 
 if __name__ == "__main__":
     chat_service = ChatService()

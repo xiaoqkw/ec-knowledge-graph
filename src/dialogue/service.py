@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Callable
 
 from configuration.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
@@ -22,11 +23,20 @@ CONFIRM_BUDGET_PATTERNS = (
     "帮我筛一下",
     "那就按这个价位",
     "按这个价位",
-    "可以",
-    "行",
     "继续筛",
     "那你筛一下",
 )
+REJECT_BUDGET_PATTERNS = (
+    "不可以",
+    "不行",
+    "不用",
+    "不要",
+    "算了",
+    "太贵",
+    "超预算",
+)
+SIMPLE_CONFIRM_BUDGET_PATTERNS = {"可以", "行"}
+TRAILING_PUNCTUATION = "，。！？,.!?~ "
 
 
 class DialogueService:
@@ -89,11 +99,11 @@ class DialogueService:
         state.pending_slots = self._get_missing_required_slots(state)
         self.store.save(state)
 
-        if self._should_accept_budget_suggestion(state, message):
-            return self._apply_budget_suggestion(state)
-
         if nlu_result.intent == "compare":
             return self._handle_compare(state)
+
+        if self._should_accept_budget_suggestion(state, message, nlu_result):
+            return self._apply_budget_suggestion(state)
 
         if state.pending_slots:
             return self._handle_slot_question(state)
@@ -203,11 +213,19 @@ class DialogueService:
             ),
         )
 
-    def _should_accept_budget_suggestion(self, state: DialogueState, message: str) -> bool:
+    def _should_accept_budget_suggestion(self, state: DialogueState, message: str, nlu_result) -> bool:
         if not state.awaiting_budget_confirmation or state.suggested_budget_min is None:
             return False
         normalized = message.strip()
-        return any(pattern in normalized for pattern in CONFIRM_BUDGET_PATTERNS)
+        if any(pattern in normalized for pattern in REJECT_BUDGET_PATTERNS):
+            return False
+        if "budget_max" in nlu_result.slots:
+            return False
+        if any(pattern in normalized for pattern in CONFIRM_BUDGET_PATTERNS):
+            return True
+
+        simple_reply = re.sub(rf"[{re.escape(TRAILING_PUNCTUATION)}]+$", "", normalized)
+        return simple_reply in SIMPLE_CONFIRM_BUDGET_PATTERNS
 
     def _apply_budget_suggestion(self, state: DialogueState) -> dict:
         state.slots["budget_max"] = state.suggested_budget_min

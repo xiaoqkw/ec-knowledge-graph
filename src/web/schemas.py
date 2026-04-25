@@ -5,10 +5,12 @@ from pydantic import BaseModel, Field
 
 class Question(BaseModel):
     message: str
+    session_id: str | None = None
 
 
 class Answer(BaseModel):
     message: str
+    session_id: str
 
 
 class RecommendationItemView(BaseModel):

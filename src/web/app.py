@@ -13,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
 
 from configuration.config import WEB_STATIC_DIR
 from dialogue import DialogueService
+from web.memory import InMemoryQASessionStore
 from web.schemas import Answer, DialogueTurnRequest, DialogueTurnResponse, Question
 from web.service import ChatService
 
@@ -23,6 +24,7 @@ app.mount("/static", StaticFiles(directory=WEB_STATIC_DIR), name="static")
 dialogue_service = DialogueService()
 qa_service: ChatService | None = None
 qa_service_error: str | None = None
+qa_session_store = InMemoryQASessionStore()
 
 
 def get_qa_service() -> ChatService | None:
@@ -40,11 +42,11 @@ def get_qa_service() -> ChatService | None:
     return qa_service
 
 
-def run_qa(message: str) -> str | None:
+def run_qa(message: str, history: list[dict[str, str]] | None = None) -> str | None:
     service = get_qa_service()
     if service is None:
         return None
-    return service.chat(message)
+    return service.chat(message, history=history)
 
 
 @app.get("/")
@@ -60,8 +62,10 @@ def chat_api(question: Question) -> Answer:
             status_code=503,
             detail=qa_service_error or "Knowledge graph QA is not enabled in the current environment.",
         )
-    result = service.chat(question.message)
-    return Answer(message=result)
+    session = qa_session_store.get_or_create(question.session_id)
+    result = service.chat(question.message, history=session.history)
+    qa_session_store.save_turn(session, question.message, result)
+    return Answer(message=result, session_id=session.session_id)
 
 
 @app.post("/api/dialogue/chat")
