@@ -58,6 +58,8 @@ def build_args():
         "logging_dir": str(logging_dir),
         "num_train_epochs": EPOCHS,
         "learning_rate": LEARNING_RATE,
+        "weight_decay": 0.01,
+        "warmup_ratio": 0.1,
         "per_device_train_batch_size": BATCH_SIZE,
         "per_device_eval_batch_size": BATCH_SIZE,
         "save_strategy": "steps",
@@ -96,6 +98,8 @@ def train():
 
     train_dataset = load_from_disk(str(PROCESSED_DATA_DIR / "train"))
     valid_dataset = load_from_disk(str(PROCESSED_DATA_DIR / "valid"))
+    train_features = train_dataset.remove_columns(["id", "text", "label"])
+    valid_features = valid_dataset.remove_columns(["id", "text", "label"])
 
     collate_fn = DataCollatorForTokenClassification(
         tokenizer,
@@ -106,8 +110,8 @@ def train():
     trainer = Trainer(
         model=model,
         args=build_args(),
-        train_dataset=train_dataset,
-        eval_dataset=valid_dataset,
+        train_dataset=train_features,
+        eval_dataset=valid_features,
         data_collator=collate_fn,
         compute_metrics=build_metrics(ID_TO_LABEL),
         callbacks=[

@@ -1,200 +1,251 @@
-# EC Graph Dialogue System
+# 电商知识图谱问答与任务型导购对话系统
 
-EC Graph Dialogue System 是一个面向电商场景的知识图谱问答与任务型导购对话项目。项目从商品数据同步、文本实体抽取、Neo4j 图谱构建开始，向上提供两类应用能力：
+一个面向电商场景的 NLP 工程项目，围绕商品文本理解、知识图谱构建、知识图谱问答和任务型导购对话三条主链路展开。系统以 Neo4j 商品知识图谱为事实底座，结合中文商品 NER、实体对齐、意图识别、槽位填充、对话状态跟踪和图约束检索，提供可控、可解释的问答与导购能力。
 
-- 知识图谱问答：自然语言问题 -> 实体对齐 -> Cypher 生成 -> Neo4j 查询 -> 答案生成。
-- 多轮手机导购：意图识别 -> 槽位填充 -> 对话状态跟踪 -> 缺槽追问 -> 图谱约束检索 -> 候选排序与解释。
+完整复现步骤、环境配置、数据准备和 API 细节见 [`REPRODUCTION_GUIDE.md`](REPRODUCTION_GUIDE.md)。
 
-项目重点不是让大模型直接“编推荐”，而是把 LLM 放在语义理解和回复表达环节，商品过滤、价格约束、在售判断和候选排序由图谱查询和确定性逻辑控制。
+## 项目定位
 
-## Features
+- 商品文本理解：从商品标题和描述中抽取属性、人群和规格实体
+- 知识图谱构建：将结构化商品数据、外部商品数据和文本实体统一写入 Neo4j
+- 知识图谱问答：通过实体对齐、Cypher 生成和图查询完成自然语言问答
+- 任务型导购对话：围绕手机品类实现 NLU、DST、缺槽追问、图约束检索、排序和对比解释
 
-- 基于 BERT 的中文商品文本 NER，当前实体类型为 `ATTR`、`PEOPLE`、`SPEC`。
-- 支持从 MySQL `gmall` 数据同步商品、类目、品牌、SKU、属性等结构化节点到 Neo4j。
-- 支持导入 OpenBG 中文商品数据，用于扩充图谱中的商品、类目、属性和文本实体。
-- 支持 Neo4j 全文索引与向量索引，用于知识图谱问答中的实体对齐。
-- 支持手机品类的任务型多轮导购，包括预算、品牌、用途、存储等槽位。
-- 提供 FastAPI 服务和 Web 页面，前端可在“导购对话”和“知识问答”两种模式之间切换；知识问答支持基于 `session_id` 的轻量上下文记忆，便于连续追问。
+项目强调工程可控性：LLM 用于复杂语义理解、Cypher 生成和自然语言表达，商品事实、价格过滤、在售判断和推荐候选由知识图谱与确定性逻辑约束。
 
-## Architecture
+## 专业能力
+
+| 能力方向 | 项目体现 |
+| --- | --- |
+| 自然语言处理 | 中文商品 NER、实体归一化、实体对齐、问答与导购场景下的语义理解 |
+| 任务导向型对话系统 | 意图识别、槽位填充、对话状态跟踪、缺槽追问、预算确认、候选比较 |
+| 知识图谱相关技术 | 商品图谱建模、MySQL / OpenBG / 文本实体入图、Cypher 查询与图约束检索 |
+| 语义检索与问答 | 全文索引、向量索引、实体对齐、图谱问答链路 |
+| 误差分析与迭代 | span-level error analysis、bad case 归因、标注策略修正、重新训练 |
+| 工程落地能力 | FastAPI、Web Demo、Neo4j、MySQL、数据同步脚本、评测与日志产物 |
+
+## 项目亮点
+
+- 用 `ATTR / PEOPLE / SPEC` 三类实体完成中文商品文本信息抽取，并将结果写回商品知识图谱
+- 围绕手机导购实现了完整的任务型对话链路：`NLU -> DST -> 缺槽追问 -> 图约束检索 -> 排序 -> 对比解释`
+- 问答链路基于 Neo4j 图查询完成，不让 LLM 直接决定商品事实和推荐结果
+- NER 评估新增 span-level error analysis，形成“评测 -> bad case -> 标注策略修正 -> 重训”的闭环
+- 当前 NER 版本在最新评测中达到：
+
+| 指标 | 数值 |
+| --- | ---: |
+| overall precision | 0.7134 |
+| overall recall | 0.7365 |
+| overall F1 | 0.7248 |
+| type-agnostic span F1 | 0.7366 |
+| ATTR F1 | 0.7425 |
+| PEOPLE F1 | 0.7886 |
+| SPEC F1 | 0.5210 |
+
+## 系统架构
 
 ```mermaid
 flowchart LR
-    A[NER 标注数据] --> B[BERT NER 训练]
-    B --> C[商品描述实体抽取]
+    A[MySQL gmall] --> B[结构化商品同步]
+    C[OpenBG 商品数据] --> D[外部商品扩图]
+    E[商品标注数据] --> F[BERT NER]
+    F --> G[文本实体入图]
 
-    D[MySQL gmall] --> E[结构化图谱同步]
-    F[OpenBG JSONL] --> G[OpenBG 结构化导入]
-    G --> H[OpenBG 文本增强]
+    B --> H[Neo4j 商品知识图谱]
+    D --> H
+    G --> H
 
-    C --> I[Neo4j 商品知识图谱]
-    E --> I
-    H --> I
+    H --> I[知识图谱问答]
+    H --> J[手机导购检索]
 
-    I --> J[知识图谱问答]
-    I --> K[手机导购检索]
-
-    K --> L[SPU 去重 / 规则排序 / 对比解释]
-    J --> M[FastAPI]
-    L --> M
-    M --> N[Web UI]
+    I --> K[FastAPI 服务]
+    J --> K
+    K --> L[Web UI]
 ```
 
-## Core Modules
+## 核心技术链路
+
+### 1. 中文商品 NER
+
+NER 任务从商品标题和描述中抽取 3 类实体：
+
+| 标签 | 含义 | 示例 |
+| --- | --- | --- |
+| `ATTR` | 可结构化、可检索的属性值 | `控油`、`无硅油`、`纯棉`、`复古` |
+| `PEOPLE` | 适用对象或人群 | `儿童`、`学生`、`女士`、`男宝宝` |
+| `SPEC` | 规格、容量、型号、组合表达 | `256GB`、`60粒`、`A3294`、`12GB+256GB` |
+
+当前 NER 模块包含：
+
+- 数据预处理、训练、评估和推理
+- span-level error analysis
+- bad case、类型混淆和错误分布统计
+
+评测日志产物位于 `logs/ner/`：
+
+- `ner_error_summary.json`：整体指标、错误类型分布、按实体类型统计
+- `ner_confusion.csv`：实体类型混淆统计
+- `ner_bad_cases.jsonl`：逐样本错误详情
+
+当前错误分布表明，主要瓶颈集中在实体边界和召回质量，而不是单纯的类型判断：
+
+| 错误类型 | 占比 |
+| --- | ---: |
+| spurious | 41.4% |
+| missing | 34.1% |
+| boundary_mismatch | 21.0% |
+| type_mismatch | 2.1% |
+| boundary_and_type_mismatch | 1.4% |
+
+这说明当前 `ATTR` 整体效果较强但仍存在过预测，`PEOPLE` 最稳定，`SPEC` 在型号、容量、范围、单位串和数字字母组合上仍是主要优化方向。
+
+在数据迭代上，先基于 span-level bad case analysis 做错误归因，再回到标注策略和数据集本身做针对性修正。归因发现，早期版本的主要问题集中在：
+
+- `ATTR` 边界过宽，容易把相邻属性合并成一个大 span
+- 低信息量修饰词和泛营销词被过标为 `ATTR`
+- 连续属性短语缺少统一拆分规则
+
+基于这些问题，后续数据策略收紧为：
+
+- `ATTR` 只保留可结构化、可检索的属性值
+- 连续属性默认拆分，减少长 span 合并
+- 排除品类词和低信息量修饰词
+- 强调 `SPEC` 规格串整体保留，避免数字、字母、单位被拆开
+
+对应的指标变化如下：
+
+| 指标 | 早期版本 | 当前版本 | 变化 |
+| --- | ---: | ---: | ---: |
+| overall F1 | 0.6449 | 0.7248 | +0.0799 |
+| ATTR F1 | 0.6077 | 0.7425 | +0.1348 |
+| PEOPLE F1 | 0.7975 | 0.7886 | -0.0089 |
+| SPEC F1 | 0.6683 | 0.5210 | -0.1473 |
+
+这组结果体现了数据优化的收益和代价：`ATTR` 的边界与召回质量明显改善，整体 F1 提升；同时 `SPEC` 被明显挤压，说明规格类样本仍需要作为独立方向继续补强，尤其是型号、容量、范围、单位串和字母数字组合表达。
+> 1. SPEC 漏检显著增加，missing 从 31 增加到 100，导致 recall 从 0.6963 降到 0.4671；
+> 2. SPEC 被 ATTR 吸走的混淆增加，SPEC -> ATTR 从 9 增加到 22；
+> 3. SPEC 边界错误明显增加，boundary mismatch 从 18 增加到 48，典型问题是容量、型号和年份类片段被截短或过度吞并。
+
+> 这说明新的标注规则在“抑制泛化 ATTR”上是有效的，但同时削弱了模型对弱格式规格表达的召回，并放大了规格边界的不稳定性。
+
+### 2. 商品知识图谱构建
+
+知识图谱围绕电商商品组织实体和关系：
+
+- 类目：`Category1`、`Category2`、`Category3`
+- 商品：`SPU`、`SKU`
+- 品牌：`Trademark`
+- 属性：`BaseAttrName`、`BaseAttrValue`、`SaleAttrName`、`SaleAttrValue`
+- 文本实体：`AttributeTag`、`PeopleTag`、`SpecTag`
+
+图谱数据来源包括：
+
+- 本地 `gmall.sql` 中的结构化商品数据
+- OpenBG 商品扩展数据
+- NER 从商品文本中抽取出的文本实体
+
+图谱构建链路的目标不是只做存储，而是为后续问答和导购提供统一事实底座。
+
+### 3. 知识图谱问答
+
+知识图谱问答链路面向全图谱实体，流程如下：
 
 ```text
-src/
-|-- configuration/
-|   |-- config.py                  # 路径、模型、数据库、图谱标签与索引配置
-|   `-- entity_normalization.json   # NER 实体归一化配置
-|-- datasync/
-|   |-- schema_sync.py              # Neo4j 约束与导购范围索引
-|   |-- table_sync.py               # gmall 结构化表同步
-|   |-- text_sync.py                # gmall 商品文本 NER 入图
-|   |-- openbg_sync.py              # OpenBG 结构化数据入图
-|   |-- openbg_text_sync.py         # OpenBG 描述生成与 NER 入图
-|   `-- reset_graph.py              # 清空图谱辅助脚本
-|-- dialogue/
-|   |-- nlu.py                      # 意图识别与槽位抽取
-|   |-- state.py                    # 会话状态存储
-|   |-- retrieval.py                # 手机候选检索、排序、对比
-|   |-- service.py                  # 多轮导购流程编排
-|   `-- types.py                    # 对话状态、推荐项、NLU 结果定义
-|-- ner/
-|   |-- preprocess.py               # NER 数据预处理
-|   |-- train.py                    # NER 模型训练
-|   |-- eval.py                     # NER 模型评估
-|   |-- predict.py                  # NER 推理
-|   `-- normalization.py            # 实体归一化
-`-- web/
-    |-- app.py                      # FastAPI 入口
-    |-- memory.py                   # 知识问答会话记忆存储
-    |-- service.py                  # 知识图谱问答服务
-    |-- schemas.py                  # API 请求/响应结构
-    |-- utils.py                    # 全文/向量索引构建
-    `-- static/index.html           # Web 页面
+用户问题 -> Cypher 生成 -> 实体对齐 -> Neo4j 查询 -> 答案生成
 ```
 
-## Dialogue Scope
+关键点：
 
-当前多轮导购链路聚焦手机品类，适合演示任务型对话系统的核心流程。
+- 使用 Neo4j 全文索引和向量索引做实体对齐
+- LLM 负责生成参数化 Cypher 和自然语言答案
+- 图查询结果作为最终回答的事实依据
 
-支持的槽位：
+示例问题：
 
-| Slot | 说明 | 示例 |
+```text
+Apple 都有哪些产品？
+适合学生的商品有哪些？
+某个品牌有哪些 SKU？
+```
+
+### 4. 任务型手机导购对话
+
+导购系统聚焦手机品类，展示任务导向型对话系统的核心流程：
+
+```text
+NLU -> Dialogue State -> 缺槽追问 -> Neo4j 图约束检索 -> SPU 去重 -> 候选排序 -> 推荐解释
+```
+
+支持槽位：
+
+| 槽位 | 含义 | 示例 |
 | --- | --- | --- |
 | `budget_max` | 最高预算 | `3000以内`、`4k`、`预算5000` |
-| `use_case` | 主要需求 | `拍照`、`游戏`、`续航`、`性价比` |
+| `use_case` | 购机场景 | `拍照`、`游戏`、`续航`、`性价比` |
 | `brand` | 品牌偏好 | `苹果`、`华为`、`OPPO`、`小米` |
 | `storage` | 机身存储 | `128G`、`256G`、`512G` |
 
-一次典型对话：
+示例对话：
 
 ```text
 用户：想买手机，4k
 系统：你更看重哪一方面？我这边先支持拍照、游戏、续航、性价比四种诉求。
-
 用户：主要拍照
 系统：返回符合预算和用途的在售候选，并解释推荐理由。
-
 用户：苹果 256G
-系统：如果预算不足，会提示当前在售 Apple 手机的可行价格，并等待用户确认是否放宽预算。
-
+系统：如果当前预算不足，会提示 Apple 在售机型的可行价格，并询问是否放宽预算。
 用户：帮我筛一下吧
 系统：按更新后的预算继续检索候选。
-
 用户：把前两个比一下
 系统：基于上一轮推荐结果，从价格、品牌、存储和用途匹配度进行对比。
 ```
 
-边界说明：
+导购结果来自 Neo4j 中真实在售 SKU，并按 SPU 维度去重，避免同一机型不同变体重复占位。
 
-- 多轮导购当前只覆盖手机品类，检索入口限定在手机 `Category3`。
-- 非手机导购问题会尝试 fallback 到知识图谱问答。
-- `storage` 表示机身存储，不与运行内存混用。
-- 推荐结果以 `SPU` 维度去重，避免同一机型不同颜色重复占位。
+## 技术栈
 
-## LLM Usage
+- 语言与服务：`Python`、`FastAPI`
+- 深度学习与 NLP：`PyTorch`、`Transformers`、`BERT Token Classification`
+- 图数据库与检索：`Neo4j`
+- 关系型数据源：`MySQL`
+- 模型增强：`LangChain`、`DeepSeek API`
+- 前端展示：Web Demo
 
-项目采用“规则可控 + LLM 增强”的方式：
+## 核心模块
 
-- 导购 NLU：规则优先；当规则不够确定时，可调用 LLM 抽取 `intent` 和槽位。
-- 导购回复：先生成确定性的基础回复，再由 LLM 做自然语言润色。
-- 知识问答：LLM 用于生成参数化 Cypher 和最终自然语言答案。
+| 模块 | 说明 |
+| --- | --- |
+| `src/ner/` | NER 数据预处理、训练、评估、推理和错误分析 |
+| `src/datasync/` | MySQL / OpenBG 到 Neo4j 的图谱同步 |
+| `src/dialogue/` | 导购 NLU、会话状态、检索排序、对比和流程编排 |
+| `src/web/` | FastAPI 服务、知识问答服务、索引构建和前端页面 |
+| `src/configuration/` | 路径、模型、标签、数据库和图谱索引配置 |
 
-LLM 不直接决定商品集合、价格过滤、在售过滤或最终排序，避免推荐结果不可控。
+## LLM 使用方式
 
-如果没有配置 `DEEPSEEK_API_KEY`：
+项目采用“规则可控 + LLM 增强”的混合架构：
 
-- `/api/dialogue/chat` 仍可用于手机导购，使用规则 NLU 和固定回复。
-- `/api/chat` 知识问答不可用，接口会返回 `503`。
+- 导购 NLU：规则优先，LLM 作为复杂表达下的结构化抽取兜底
+- 导购回复：先生成确定性回复，再由 LLM 做自然语言润色
+- 知识问答：LLM 生成参数化 Cypher 和最终答案
 
-## Requirements
+LLM 不直接决定商品候选、价格过滤、在售过滤或排序结果，这些由知识图谱查询和业务逻辑控制。
 
-- Python 3.10+
-- MySQL 8.x
-- Neo4j 5.x
-- 可选：GPU 环境用于 NER 训练
+## 工程特点
 
-安装依赖：
+- 本地可复现的数据构建链路：`MySQL -> Neo4j -> 索引 -> Web 服务`
+- QA 懒加载设计：没有 `DEEPSEEK_API_KEY` 时，手机导购仍可运行
+- NER 评估支持 bad case 文件、类型混淆和错误分布统计
+- Web 页面支持“导购对话 / 知识问答”双模式
+- OpenBG 数据直接入图，不回写 MySQL，便于扩展商品图谱
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+## 快速体验
 
-复制环境变量模板：
-
-```powershell
-Copy-Item .env.example .env
-```
-
-`.env` 主要配置项：
-
-```env
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=your_mysql_password
-MYSQL_DATABASE=gmall
-
-NEO4J_URI=neo4j://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_neo4j_password
-
-DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-chat
-EMBEDDING_MODEL_NAME=BAAI/bge-base-zh-v1.5
-```
-
-## Quick Start
-
-如果只想体验手机导购，最小流程是导入 `gmall.sql`，同步主图谱，然后启动 Web 服务。
-
-### 1. 初始化 MySQL
-
-```powershell
-mysql -u root -p gmall < data\gmall.sql
-```
-
-如果数据库不存在，可以先创建：
-
-```sql
-CREATE DATABASE gmall DEFAULT CHARACTER SET utf8mb4;
-```
-
-### 2. 构建 Neo4j 图谱
+完整复现流程见 [`REPRODUCTION_GUIDE.md`](REPRODUCTION_GUIDE.md)。手机导购最小运行流程：
 
 ```powershell
 python src\datasync\schema_sync.py
 python src\datasync\table_sync.py
-```
-
-### 3. 启动服务
-
-```powershell
 python src\web\app.py
 ```
 
@@ -204,7 +255,7 @@ python src\web\app.py
 http://127.0.0.1:8000/
 ```
 
-进入页面后切换到“导购对话”模式，可以尝试：
+导购模式下可以输入：
 
 ```text
 想买手机，4k
@@ -214,169 +265,10 @@ http://127.0.0.1:8000/
 把前两个比一下
 ```
 
-## Full Data Pipeline
+## 项目边界
 
-完整链路包括 NER、gmall 主图谱、OpenBG 扩图和检索索引。
-
-### 1. NER 训练与评估
-
-```powershell
-python src\ner\preprocess.py
-python src\ner\train.py
-python src\ner\eval.py
-```
-
-NER 标签类型配置在 `src/configuration/config.py`，当前为：
-
-```text
-ATTR, PEOPLE, SPEC
-```
-
-### 2. gmall 主图谱同步
-
-```powershell
-python src\datasync\schema_sync.py
-python src\datasync\table_sync.py
-python src\datasync\text_sync.py
-```
-
-`table_sync.py` 会同步商品、SKU、类目、品牌、平台属性、销售属性等结构化节点与关系。`text_sync.py` 会对商品描述运行 NER，并写入 `AttributeTag`、`PeopleTag`、`SpecTag`。
-
-### 3. OpenBG 扩图
-
-```powershell
-python src\datasync\openbg_sync.py
-python src\datasync\openbg_text_sync.py
-```
-
-OpenBG 导入策略：
-
-- 每条 OpenBG 样本映射为一个 `SPU` 和一个默认 `SKU`。
-- 类目优先匹配已有 `Category3`，不稳定时回退到 `Category2` 并创建新的 `Category3`。
-- `item_pvs` 默认写入平台属性，`sku_pvs` 中白名单属性写入销售属性。
-- 文本增强阶段生成中文描述，再运行 NER 写入文本实体节点。
-
-### 4. 构建问答索引
-
-```powershell
-python src\web\utils.py
-```
-
-该步骤会为配置中的实体类型创建全文索引和向量索引，用于知识问答中的实体对齐。
-
-## API
-
-### 手机导购
-
-```http
-POST /api/dialogue/chat
-Content-Type: application/json
-```
-
-请求：
-
-```json
-{
-  "message": "想买手机，预算5000，主要拍照",
-  "session_id": null
-}
-```
-
-响应字段：
-
-```json
-{
-  "session_id": "session-id",
-  "message": "回复文本",
-  "mode": "dialogue",
-  "action": "recommend",
-  "state": {
-    "domain": "phone_guide",
-    "intent": "recommend",
-    "filled_slots": {
-      "budget_max": 5000,
-      "use_case": "拍照"
-    },
-    "pending_slots": []
-  },
-  "recommendations": [
-    {
-      "sku_id": 1,
-      "spu_id": 1,
-      "sku_name": "SKU 名称",
-      "spu_name": "SPU 名称",
-      "brand": "品牌",
-      "price": 4999,
-      "reason": "推荐理由",
-      "default_img": "",
-      "storage_options": ["128G", "256G"]
-    }
-  ]
-}
-```
-
-`action` 可能值：
-
-- `ask_slot`：需要继续追问槽位。
-- `recommend`：返回推荐候选。
-- `compare`：对上一轮候选做对比。
-- `fallback_qa`：转入知识图谱问答。
-- `reset`：清空当前会话条件。
-
-### 知识图谱问答
-
-```http
-POST /api/chat
-Content-Type: application/json
-```
-
-请求：
-
-```json
-{
-  "message": "Apple 都有哪些产品？",
-  "session_id": null
-}
-```
-
-响应：
-
-```json
-{
-  "message": "答案文本",
-  "session_id": "session-id"
-}
-```
-
-`session_id` 为空时服务端会创建新的问答会话；后续请求携带返回的 `session_id`，知识问答就会记住最近几轮上下文。
-
-## Development
-
-运行单元测试：
-
-```powershell
-python -m unittest discover tests
-```
-
-常用调试命令：
-
-```powershell
-python src\datasync\reset_graph.py
-python src\datasync\schema_sync.py
-python src\datasync\table_sync.py
-python src\web\app.py
-```
-
-如果只想验证导购模块的 Python 语法：
-
-```powershell
-python -m py_compile src\dialogue\__init__.py src\dialogue\types.py src\dialogue\state.py src\dialogue\nlu.py src\dialogue\retrieval.py src\dialogue\service.py
-```
-
-## Known Limitations
-
-- 多轮导购目前是手机品类 demo，没有实现全品类路由。
-- 导购会话状态和知识问答上下文都使用内存存储，服务重启后会丢失；生产环境应替换为 Redis 或数据库。
-- 导购排序以规则分数为主，没有接入学习排序模型。
-- 商品属性质量直接影响存储、用途等条件过滤效果。
-- 知识问答依赖 LLM 生成 Cypher，实际生产环境需要更严格的查询模板、权限控制和安全校验。
+- 多轮导购当前聚焦手机品类，不覆盖全品类导购
+- 会话状态使用内存存储，生产环境可替换为 Redis 或数据库
+- 导购排序以规则分数为主，没有使用在线反馈或学习排序
+- `SPEC` 规格类实体仍是当前 NER 的主要短板，尤其是型号、容量、范围、单位串和数字字母组合
+- 知识图谱问答依赖 LLM 生成 Cypher，生产场景需要更严格的查询模板、安全校验和权限控制

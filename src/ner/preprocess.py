@@ -39,6 +39,32 @@ def get_entity_type(entity: dict) -> str:
     return entity_type
 
 
+def get_window_end(tokenized) -> int:
+    word_ids = [word_id for word_id in tokenized.word_ids() if word_id is not None]
+    if not word_ids:
+        return 0
+    return max(word_ids) + 1
+
+
+def clip_entities(entities: list[dict], text: str, window_end: int) -> list[dict]:
+    clipped_entities = []
+    for entity in entities:
+        start, end = entity["start"], entity["end"]
+        if start >= window_end:
+            continue
+
+        clipped_end = min(end, window_end)
+        clipped_entities.append(
+            {
+                "start": start,
+                "end": clipped_end,
+                "text": text[start:clipped_end],
+                "labels": list(entity.get("labels", [])),
+            }
+        )
+    return clipped_entities
+
+
 def encode_example(example, tokenizer):
     tokens = list(example["text"])
     tokenized = tokenizer(
@@ -47,6 +73,9 @@ def encode_example(example, tokenizer):
         truncation=True,
         max_length=MAX_LENGTH,
     )
+    window_end = get_window_end(tokenized)
+    clipped_text = example["text"][:window_end]
+    clipped_entities = clip_entities(example.get("label") or [], clipped_text, window_end)
 
     char_labels = [LABEL_TO_ID["O"]] * len(tokens)
     entities = example.get("label") or []
@@ -77,6 +106,9 @@ def encode_example(example, tokenizer):
         previous_word_id = word_id
 
     tokenized["labels"] = aligned_labels
+    tokenized["id"] = example["id"]
+    tokenized["text"] = clipped_text
+    tokenized["label"] = clipped_entities
     return tokenized
 
 
@@ -85,7 +117,6 @@ def process():
     dataset = load_dataset("json", data_files=str(RAW_DATA_FILE), split="train")
 
     unused_columns = [
-        "id",
         "annotator",
         "annotation_id",
         "created_at",
@@ -102,7 +133,6 @@ def process():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     dataset_dict = dataset_dict.map(
         lambda example: encode_example(example, tokenizer),
-        remove_columns=["text", "label"],
     )
 
     dataset_dict.save_to_disk(str(PROCESSED_DATA_DIR))
