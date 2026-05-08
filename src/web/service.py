@@ -1,14 +1,8 @@
 import json
 import os
+import re
 import sys
 from pathlib import Path
-
-from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_deepseek import ChatDeepSeek
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_neo4j import Neo4jGraph, Neo4jVector
-from neo4j_graphrag.types import SearchType
 
 CURRENT_DIR = Path(__file__).resolve()
 SRC_DIR = CURRENT_DIR.parents[1]
@@ -30,11 +24,33 @@ try:
 except ImportError:
     repair_json = None
 
+try:
+    from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+    from langchain_core.prompts import PromptTemplate
+    from langchain_deepseek import ChatDeepSeek
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_neo4j import Neo4jGraph, Neo4jVector
+    from neo4j_graphrag.types import SearchType
+except ImportError:
+    JsonOutputParser = None
+    StrOutputParser = None
+    PromptTemplate = None
+    ChatDeepSeek = None
+    HuggingFaceEmbeddings = None
+    Neo4jGraph = None
+    Neo4jVector = None
+    SearchType = None
+
+
+UNSAFE_CYPHER_PATTERN = re.compile(r"\b(create|merge|set|delete|remove|drop)\b", re.IGNORECASE)
+
 
 class ChatService:
     """知识图谱问答服务：问题 -> 实体对齐 -> Cypher -> 答案。"""
 
-    def __init__(self):
+    def __init__(self, *, llm_enabled: bool = True):
+        if Neo4jGraph is None or HuggingFaceEmbeddings is None or JsonOutputParser is None or StrOutputParser is None:
+            raise ImportError("Knowledge graph QA dependencies are not installed in the current environment.")
         self.graph = Neo4jGraph(
             url=NEO4J_CONFIG["uri"],
             username=NEO4J_CONFIG["auth"][0],
@@ -45,10 +61,11 @@ class ChatService:
             encode_kwargs={"normalize_embeddings": True},
         )
 
-        if not DEEPSEEK_API_KEY:
-            raise ValueError("未检测到 DEEPSEEK_API_KEY，请先在 .env 中配置。")
-
-        self.llm = ChatDeepSeek(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY)
+        self.llm = None
+        if llm_enabled:
+            if not DEEPSEEK_API_KEY:
+                raise ValueError("未检测到 DEEPSEEK_API_KEY，请先在 .env 中配置。")
+            self.llm = ChatDeepSeek(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY)
         self.neo4j_vectors = {
             label: self._build_vector(label, index_info)
             for label, index_info in ENTITY_INDEX_CONFIG.items()
@@ -77,34 +94,81 @@ class ChatService:
 
     def chat(self, question: str, history: list[dict[str, str]] | None = None) -> str:
         """执行完整问答流程，并返回自然语言答案。"""
-        result = self._generate_cypher(question, history=history)
-        cypher = result["cypher_query"]
-        entities_to_align = result["entities_to_align"]
-        print("生成的 Cypher:", cypher)
-        print("对齐前的实体列表:", entities_to_align)
+        trace = self.trace_chat(question, history=history, align_entities=True)
+        print("生成的 Cypher:", trace["cypher_query"])
+        print("对齐前的实体列表:", trace["entities_to_align"])
+        print("对齐后的实体列表:", trace["aligned_entities"])
+        print("执行参数:", trace["executed_params"])
+        print("图谱查询结果:", trace["query_result"])
+        print("最终回答:", trace["answer"])
+        return trace["answer"]
 
-        aligned_entities = self._entity_align(entities_to_align)
-        print("对齐后的实体列表:", aligned_entities)
-
-        query_result = self._execute_cypher(cypher, aligned_entities)
-        print("图谱查询结果:", query_result)
-
-        answer = self._generate_answer(question, query_result, history=history)
-        print("最终回答:", answer)
-        return answer
-
-    def _generate_cypher(
+    def trace_chat(
         self,
         question: str,
         history: list[dict[str, str]] | None = None,
+        *,
+        align_entities: bool = True,
     ) -> dict:
-        """根据用户问题和图谱 schema 生成参数化 Cypher。"""
+        raw_prompt = self._build_cypher_prompt(question, history)
+        raw_cypher_output = self._invoke_cypher_llm(raw_prompt)
+        parse_result = self._parse_cypher_output(raw_cypher_output)
+
+        payload = parse_result["payload"] if isinstance(parse_result["payload"], dict) else {}
+        cypher_query = payload.get("cypher_query", "") if parse_result["cypher_query_present"] else ""
+        entities_to_align = self._normalize_entities_to_align(payload.get("entities_to_align"))
+
+        if align_entities:
+            aligned_entities = self._entity_align(entities_to_align)
+        else:
+            aligned_entities = [dict(item) for item in entities_to_align]
+        executed_params = self._build_executed_params(aligned_entities)
+
+        unsafe_cypher = self._is_unsafe_cypher(cypher_query)
+        execution_success = False
+        execution_error = None
+        query_result = []
+        non_empty_result = False
+
+        if parse_result["cypher_query_present"]:
+            try:
+                query_result = self._execute_cypher(cypher_query, executed_params)
+                execution_success = True
+                non_empty_result = bool(query_result)
+            except Exception as exc:
+                execution_error = str(exc)
+        else:
+            execution_error = parse_result["parse_error"] or "Missing cypher_query in parsed payload."
+
+        answer = self._generate_answer(question, query_result, history=history)
+        return {
+            "question": question,
+            "raw_cypher_output": parse_result["raw_content"],
+            "repaired_cypher_output": parse_result["repaired_content"],
+            "parse_success_raw": parse_result["parse_success_raw"],
+            "parse_success_repaired": parse_result["parse_success_repaired"],
+            "cypher_query_present": parse_result["cypher_query_present"],
+            "parsed_payload": parse_result["payload"],
+            "cypher_query": cypher_query,
+            "entities_to_align": entities_to_align,
+            "aligned_entities": aligned_entities,
+            "executed_params": executed_params,
+            "unsafe_cypher": unsafe_cypher,
+            "execution_success": execution_success,
+            "execution_error": execution_error,
+            "query_result": query_result,
+            "non_empty_result": non_empty_result,
+            "answer": answer,
+        }
+
+    def _build_cypher_prompt(
+        self,
+        question: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> str:
         prompt = """
 你是一个专业的 Neo4j Cypher 查询生成器。
-
-你的任务：
-根据用户当前问题、最近对话历史和知识图谱结构信息，生成一条参数化 Cypher 查询语句，并列出需要做实体对齐的参数。
-
+你的任务：根据用户当前问题、最近对话历史和知识图谱结构信息，生成一条参数化 Cypher 查询语句，并列出需要做实体对齐的参数。
 最近对话历史（可能为空）：
 {history_text}
 
@@ -119,7 +183,6 @@ class ChatService:
 4. entities_to_align 中列出所有需要做实体对齐的参数。
 5. label 字段只能使用图谱中真实存在的节点标签。
 6. 如果问题不需要实体对齐，entities_to_align 返回空列表。
-
 输出格式：
 {{
   "cypher_query": "生成的 Cypher 语句",
@@ -132,51 +195,124 @@ class ChatService:
   ]
 }}
 """
-        rendered_prompt = PromptTemplate.from_template(prompt).format(
+        return PromptTemplate.from_template(prompt).format(
             question=question,
             history_text=self._format_history(history),
             schema_info=self.graph.schema,
         )
-        results = self.llm.invoke(rendered_prompt)
-        content = getattr(results, "content", str(results))
 
-        repaired = repair_json(content, ensure_ascii=False) if repair_json is not None else content
-        return self.json_parser.invoke(repaired)
+    def _invoke_cypher_llm(self, prompt: str) -> str:
+        if self.llm is None:
+            raise RuntimeError("LLM is not enabled for the current ChatService instance.")
+        result = self.llm.invoke(prompt)
+        return getattr(result, "content", str(result))
 
-    def _entity_align(self, entities_to_align: list[dict]) -> list[dict]:
-        """使用 Neo4j 混合检索，把口语化实体对齐到图谱标准实体。"""
+    def _parse_cypher_output(self, raw_content: str) -> dict:
+        parse_success_raw = False
+        parse_success_repaired = False
+        payload = None
+        parse_error = None
+
+        try:
+            payload = self.json_parser.invoke(raw_content)
+            parse_success_raw = True
+            parse_success_repaired = True
+        except Exception as raw_exc:
+            parse_error = str(raw_exc)
+            repaired_content = repair_json(raw_content, ensure_ascii=False) if repair_json is not None else raw_content
+            try:
+                payload = self.json_parser.invoke(repaired_content)
+                parse_success_repaired = True
+            except Exception as repaired_exc:
+                parse_error = str(repaired_exc)
+        else:
+            repaired_content = raw_content
+
+        if not parse_success_raw:
+            repaired_content = repair_json(raw_content, ensure_ascii=False) if repair_json is not None else raw_content
+
+        if payload is not None and not isinstance(payload, dict):
+            parse_error = f"Parsed JSON payload must be an object, got {type(payload).__name__}."
+            payload = None
+            parse_success_raw = False
+            parse_success_repaired = False
+
+        cypher_query_present = bool(payload and str(payload.get("cypher_query", "")).strip())
+        return {
+            "raw_content": raw_content,
+            "repaired_content": repaired_content,
+            "parse_success_raw": parse_success_raw,
+            "parse_success_repaired": parse_success_repaired,
+            "cypher_query_present": cypher_query_present,
+            "payload": payload,
+            "parse_error": parse_error,
+        }
+
+    def _search_entities(self, label: str, query: str, mode: str, k: int) -> list[str]:
+        if mode == "exact_match":
+            rows = self.graph.query(
+                f"""
+                MATCH (n:{label} {{name: $query}})
+                RETURN n.name AS name
+                """,
+                params={"query": query},
+            )
+            return self._dedupe_candidates(row.get("name") for row in rows)
+
+        if mode == "fulltext":
+            index_info = ENTITY_INDEX_CONFIG.get(label)
+            if index_info is None:
+                return []
+            rows = self.graph.query(
+                """
+                CALL db.index.fulltext.queryNodes($index_name, $query) YIELD node, score
+                RETURN node.name AS name, score
+                ORDER BY score DESC
+                LIMIT $limit
+                """,
+                params={
+                    "index_name": index_info["fulltext_index"],
+                    "query": query,
+                    "limit": k,
+                },
+            )
+            return self._dedupe_candidates(row.get("name") for row in rows)
+
+        if mode == "hybrid":
+            neo4j_vector = self.neo4j_vectors.get(label)
+            if neo4j_vector is None:
+                return []
+            results = neo4j_vector.similarity_search(query, k=k)
+            return self._dedupe_candidates(item.page_content for item in results)
+
+        raise ValueError(f"Unsupported search mode: {mode}")
+
+    def _entity_align(
+        self,
+        entities_to_align: list[dict],
+        *,
+        mode: str = "hybrid",
+        k: int = 1,
+    ) -> list[dict]:
+        """使用 Neo4j 检索，把口语化实体对齐到图谱标准实体。"""
         aligned_entities = []
         for item in entities_to_align:
-            label = item["label"]
-            entity = item["entity"]
-            neo4j_vector = self.neo4j_vectors.get(label)
-            if not neo4j_vector:
-                aligned_entities.append(item)
+            candidates = self._search_entities(item["label"], item["entity"], mode=mode, k=k)
+            if not candidates:
+                aligned_entities.append(dict(item))
                 continue
-
-            results = neo4j_vector.similarity_search(entity, k=1)
-            if not results:
-                aligned_entities.append(item)
-                continue
-
-            aligned_entity = results[0].page_content
             aligned_entities.append(
                 {
                     "param_name": item["param_name"],
-                    "entity": aligned_entity,
-                    "label": label,
+                    "entity": candidates[0],
+                    "label": item["label"],
                 }
             )
-
         return aligned_entities
 
-    def _execute_cypher(self, cypher: str, aligned_entities: list[dict]):
-        """将对齐结果转换为参数字典后执行 Cypher。"""
-        params = {
-            item["param_name"]: item["entity"]
-            for item in aligned_entities
-        }
-        return self.graph.query(cypher, params=params)
+    def _execute_cypher(self, cypher: str, executed_params: dict):
+        """执行 Cypher，并返回查询结果。"""
+        return self.graph.query(cypher, params=executed_params)
 
     def _generate_answer(
         self,
@@ -187,9 +323,7 @@ class ChatService:
         """把图查询结果整理成用户可读的自然语言回答。"""
         prompt = """
 你是一名电商智能客服。
-
 请根据用户当前问题、最近对话历史和知识图谱查询结果，生成一段简洁、准确、自然的中文回答。
-
 最近对话历史（可能为空）：
 {history_text}
 
@@ -207,8 +341,58 @@ class ChatService:
             history_text=self._format_history(history),
             query_result=json.dumps(query_result, ensure_ascii=False),
         )
+        if self.llm is None:
+            if query_result:
+                return json.dumps(query_result, ensure_ascii=False)
+            return "当前图谱中没有找到相关信息。"
         output = self.llm.invoke(rendered_prompt)
         return self.str_parser.invoke(output)
+
+    @staticmethod
+    def _build_executed_params(entities: list[dict]) -> dict[str, str]:
+        return {
+            item["param_name"]: item["entity"]
+            for item in entities
+            if item.get("param_name") and item.get("entity") is not None
+        }
+
+    @staticmethod
+    def _dedupe_candidates(candidates) -> list[str]:
+        names = []
+        seen = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            names.append(candidate)
+        return names
+
+    @staticmethod
+    def _normalize_entities_to_align(raw_entities) -> list[dict]:
+        if not isinstance(raw_entities, list):
+            return []
+
+        normalized = []
+        for item in raw_entities:
+            if not isinstance(item, dict):
+                continue
+            param_name = str(item.get("param_name", "")).strip()
+            entity = str(item.get("entity", "")).strip()
+            label = str(item.get("label", "")).strip()
+            if not param_name or not entity or not label:
+                continue
+            normalized.append(
+                {
+                    "param_name": param_name,
+                    "entity": entity,
+                    "label": label,
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _is_unsafe_cypher(cypher_query: str) -> bool:
+        return bool(UNSAFE_CYPHER_PATTERN.search(cypher_query or ""))
 
     @staticmethod
     def _format_history(history: list[dict[str, str]] | None) -> str:

@@ -1,0 +1,39 @@
+{"question": "苹果都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "苹果"}, "required_entities": ["苹果"], "answer_keywords": ["iphone"], "must_execute": true}
+{"question": "华为都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "华为"}, "required_entities": ["华为"], "answer_keywords": ["mate"], "must_execute": true}
+{"question": "小米都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "小米"}, "required_entities": ["小米"], "answer_keywords": ["12s"], "must_execute": true}
+{"question": "TCL 都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "TCL"}, "required_entities": ["TCL"], "answer_keywords": ["电视"], "must_execute": true}
+{"question": "CAREMiLLE 都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "CAREMiLLE"}, "required_entities": ["CAREMiLLE"], "answer_keywords": ["口红"], "must_execute": true}
+{"question": "Pier Auge 都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "Pier Auge"}, "required_entities": ["Pier Auge"], "answer_keywords": ["面膜"], "must_execute": true}
+{"question": "Apple 有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "苹果"}, "required_entities": ["苹果"], "answer_keywords": ["iphone"], "must_execute": true}
+{"question": "huawei 有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "华为"}, "required_entities": ["华为"], "answer_keywords": ["mate"], "must_execute": true}
+{"question": "xiaomi 有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "小米"}, "required_entities": ["小米"], "answer_keywords": ["12s"], "must_execute": true}
+{"question": "oppo 都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "OPPO"}, "required_entities": ["OPPO"], "answer_keywords": ["find x8"], "must_execute": true}
+{"question": "vivo 都有哪些产品？", "gold_cypher_type": "brand_products", "template_params": {"param_0": "VIVO"}, "required_entities": ["VIVO"], "answer_keywords": ["s20"], "must_execute": true}
+{"question": "手机这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机"}, "required_entities": ["手机"], "answer_keywords": ["苹果"], "must_execute": true}
+{"question": "手机类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机"}, "required_entities": ["手机"], "answer_keywords": ["华为"], "must_execute": true}
+{"question": "手机品类下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机"}, "required_entities": ["手机"], "answer_keywords": ["oppo"], "must_execute": true}
+{"question": "手机保护套这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机保护套"}, "required_entities": ["手机保护套"], "answer_keywords": ["苹果"], "must_execute": true}
+{"question": "手机保护套类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机保护套"}, "required_entities": ["手机保护套"], "answer_keywords": ["华为"], "must_execute": true}
+{"question": "保护套品类下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机保护套"}, "required_entities": ["手机保护套"], "answer_keywords": ["vivo"], "must_execute": true}
+{"question": "手机保护套品类还有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "手机保护套"}, "required_entities": ["手机保护套"], "answer_keywords": ["小米"], "must_execute": true}
+{"question": "平板电视这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "平板电视"}, "required_entities": ["平板电视"], "answer_keywords": ["tcl"], "must_execute": true}
+{"question": "平板电视类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "平板电视"}, "required_entities": ["平板电视"], "answer_keywords": ["小米"], "must_execute": true}
+{"question": "笔记本这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "笔记本"}, "required_entities": ["笔记本"], "answer_keywords": ["华为"], "must_execute": true}
+{"question": "笔记本类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "笔记本"}, "required_entities": ["笔记本"], "answer_keywords": ["h&u&w"], "must_execute": true}
+{"question": "唇部这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "唇部"}, "required_entities": ["唇部"], "answer_keywords": ["caremille"], "must_execute": true}
+{"question": "唇部类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "唇部"}, "required_entities": ["唇部"], "answer_keywords": ["索芙特"], "must_execute": true}
+{"question": "米面杂粮这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "米面杂粮"}, "required_entities": ["米面杂粮"], "answer_keywords": ["金沙河"], "must_execute": true}
+{"question": "米面杂粮类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "米面杂粮"}, "required_entities": ["米面杂粮"], "answer_keywords": ["长粒香"], "must_execute": true}
+{"question": "游戏本这个类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "游戏本"}, "required_entities": ["游戏本"], "answer_keywords": ["联想"], "must_execute": true}
+{"question": "香水类目下有哪些品牌？", "gold_cypher_type": "category_brands", "template_params": {"param_0": "香水"}, "required_entities": ["香水"], "answer_keywords": ["香奈儿"], "must_execute": true}
+{"question": "Apple iPhone 12 有哪些 SKU？", "gold_cypher_type": "product_skus", "template_params": {"param_0": "Apple iPhone 12"}, "required_entities": ["Apple iPhone 12"], "answer_keywords": ["64gb"], "must_execute": true}
+{"question": "Apple iPhone 16 Pro 有哪些 SKU？", "gold_cypher_type": "product_skus", "template_params": {"param_0": "Apple iPhone 16 Pro"}, "required_entities": ["Apple iPhone 16 Pro"], "answer_keywords": ["256gb"], "must_execute": true}
+{"question": "华为Mate 40 pro 有哪些 SKU？", "gold_cypher_type": "product_skus", "template_params": {"param_0": "华为Mate 40 pro"}, "required_entities": ["华为Mate 40 pro"], "answer_keywords": ["128"], "must_execute": true}
+{"question": "Redmi 10X 有哪些 SKU？", "gold_cypher_type": "product_skus", "template_params": {"param_0": "Redmi 10X"}, "required_entities": ["Redmi 10X"], "answer_keywords": ["128gb"], "must_execute": true}
+{"question": "REDMI Turbo4 Pro 有哪些 SKU？", "gold_cypher_type": "product_skus", "template_params": {"param_0": "REDMI Turbo4 Pro"}, "required_entities": ["REDMI Turbo4 Pro"], "answer_keywords": ["256gb"], "must_execute": true}
+{"question": "iphone 16 pro 有哪些 sku", "gold_cypher_type": "product_skus", "template_params": {"param_0": "Apple iPhone 16 Pro"}, "required_entities": ["Apple iPhone 16 Pro"], "answer_keywords": ["256gb"], "must_execute": true}
+{"question": "apple iphone 12 有哪些 sku", "gold_cypher_type": "product_skus", "template_params": {"param_0": "Apple iPhone 12"}, "required_entities": ["Apple iPhone 12"], "answer_keywords": ["64gb"], "must_execute": true}
+{"question": "mate 40 pro 有哪些 sku", "gold_cypher_type": "product_skus", "template_params": {"param_0": "华为Mate 40 pro"}, "required_entities": ["华为Mate 40 pro"], "answer_keywords": ["128"], "must_execute": true}
+{"question": "redmi10x 有哪些 sku", "gold_cypher_type": "product_skus", "template_params": {"param_0": "Redmi 10X"}, "required_entities": ["Redmi 10X"], "answer_keywords": ["128gb"], "must_execute": true}
+{"question": "redmiturbo4pro 有哪些 sku", "gold_cypher_type": "product_skus", "template_params": {"param_0": "REDMI Turbo4 Pro"}, "required_entities": ["REDMI Turbo4 Pro"], "answer_keywords": ["256gb"], "must_execute": true}
+{"question": "这款手机有什么配置？", "gold_cypher_type": "product_skus", "template_params": {}, "required_entities": [], "answer_keywords": [], "must_execute": false}

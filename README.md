@@ -1,46 +1,48 @@
 # 电商知识图谱问答与任务型导购对话系统
 
-一个面向电商场景的 NLP 工程项目，围绕商品文本理解、知识图谱构建、知识图谱问答和任务型导购对话三条主链路展开。系统以 Neo4j 商品知识图谱为事实底座，结合中文商品 NER、实体对齐、意图识别、槽位填充、对话状态跟踪和图约束检索，提供可控、可解释的问答与导购能力。
+一套端到端 LLM + 知识图谱应用系统，围绕三条主链路展开：
 
-完整复现步骤、环境配置、数据准备和 API 细节见 [`REPRODUCTION_GUIDE.md`](REPRODUCTION_GUIDE.md)。
+- **Text2Cypher for KGQA**：将自然语言问题转换为参数化 Cypher 与待对齐实体槽
+- **Hybrid Retrieval for Entity Linking**：Neo4j 全文索引 + `bge-base-zh` 稠密向量检索，做口语化实体到图谱标准实体的对齐
+- **Controllable Task-Oriented Dialogue**：围绕手机导购实现规则可控、图谱约束的多轮对话系统
+
+系统以 Neo4j 商品知识图谱为事实底座，LLM 用于复杂语义理解、结构化查询生成和自然语言表达，商品事实、价格过滤、在售判断和推荐候选由图谱查询与确定性逻辑约束。完整复现步骤见 [`REPRODUCTION_GUIDE.md`](REPRODUCTION_GUIDE.md)。
+
+## TL;DR
+
+- **KGQA 分阶段评测**：`full` vs. `ablation`（去掉实体对齐）在 `non_empty_result_rate` 上 `+20.5 pts`，在 `answer_keyword_hit_rate` 上 `+15.8 pts`
+- **实体链接评测**：`hybrid` vs. `fulltext` 在 top-1 accuracy 上 `+13.0 pts`，top-k recall 上 `+14.3 pts`
+- **NER 数据策略迭代**：`ATTR F1 +13.5 pts`，`overall F1 +8.0 pts`，同时识别出 `SPEC` 作为独立补强方向
+- **可控性优先**：LLM 不直接决定商品事实与排序；结构化输出有 `json_repair` 修复与 `UNSAFE_CYPHER` 检测；导购 NLU 规则优先、LLM 兜底
+- **可观测性**：`trace_chat()` 导出 14 个阶段字段，评测指标与排障诊断共用一份单一事实源
 
 ## 项目定位
+
+项目涵盖从数据构建到线上服务的端到端链路：
 
 - 商品文本理解：从商品标题和描述中抽取属性、人群和规格实体
 - 知识图谱构建：将结构化商品数据、外部商品数据和文本实体统一写入 Neo4j
 - 知识图谱问答：通过实体对齐、Cypher 生成和图查询完成自然语言问答
 - 任务型导购对话：围绕手机品类实现 NLU、DST、缺槽追问、图约束检索、排序和对比解释
 
-项目强调工程可控性：LLM 用于复杂语义理解、Cypher 生成和自然语言表达，商品事实、价格过滤、在售判断和推荐候选由知识图谱与确定性逻辑约束。
+核心技术标签：`Text2Cypher` | `Hybrid Entity Linking` | `Controllable TOD` | `Schema-grounded Structured Generation` | `Span-level NER Error Analysis` | `Staged KGQA Evaluation`
 
-## 专业能力
+## 关键结果
 
-| 能力方向 | 项目体现 |
-| --- | --- |
-| 自然语言处理 | 中文商品 NER、实体归一化、实体对齐、问答与导购场景下的语义理解 |
-| 任务导向型对话系统 | 意图识别、槽位填充、对话状态跟踪、缺槽追问、预算确认、候选比较 |
-| 知识图谱相关技术 | 商品图谱建模、MySQL / OpenBG / 文本实体入图、Cypher 查询与图约束检索 |
-| 语义检索与问答 | 全文索引、向量索引、实体对齐、图谱问答链路 |
-| 误差分析与迭代 | span-level error analysis、bad case 归因、标注策略修正、重新训练 |
-| 工程落地能力 | FastAPI、Web Demo、Neo4j、MySQL、数据同步脚本、评测与日志产物 |
+| 任务 | 指标 | baseline | 本项目 | Δ |
+| --- | --- | --- | --- | ---: |
+| KGQA | non-empty result rate | ablation 0.6842 | full 0.8947 | **+20.5 pts** |
+| KGQA | answer keyword hit rate | ablation 0.6842 | full 0.8421 | **+15.8 pts** |
+| KGQA | entity all coverage rate | ablation 0.6923 | full 0.8974 | **+20.5 pts** |
+| Entity Linking | top-1 accuracy | fulltext 0.7532 | hybrid 0.8831 | **+13.0 pts** |
+| Entity Linking | top-k recall | fulltext 0.7922 | hybrid 0.9351 | **+14.3 pts** |
+| NER（数据策略迭代） | ATTR F1 | 初版 0.6077 | 当前 0.7425 | **+13.5 pts** |
+| NER（数据策略迭代） | overall F1 | 初版 0.6449 | 当前 0.7248 | +8.0 pts |
+| NER（数据策略迭代） | SPEC F1 | 初版 0.6683 | 当前 0.5210 | -14.7 pts（已识别为补强方向） |
 
-## 项目亮点
-
-- 用 `ATTR / PEOPLE / SPEC` 三类实体完成中文商品文本信息抽取，并将结果写回商品知识图谱
-- 围绕手机导购实现了完整的任务型对话链路：`NLU -> DST -> 缺槽追问 -> 图约束检索 -> 排序 -> 对比解释`
-- 问答链路基于 Neo4j 图查询完成，不让 LLM 直接决定商品事实和推荐结果
-- NER 评估新增 span-level error analysis，形成“评测 -> bad case -> 标注策略修正 -> 重训”的闭环
-- 当前 NER 版本在最新评测中达到：
-
-| 指标 | 数值 |
-| --- | ---: |
-| overall precision | 0.7134 |
-| overall recall | 0.7365 |
-| overall F1 | 0.7248 |
-| type-agnostic span F1 | 0.7366 |
-| ATTR F1 | 0.7425 |
-| PEOPLE F1 | 0.7886 |
-| SPEC F1 | 0.5210 |
+- KGQA `template` baseline 在当前图谱事实下达到 1.0000，作为可执行上限参考
+- KGQA 评测集 `39` 条（`must_execute=38`），Entity Linking 评测集 `77` 条
+- 结果数据源：`logs/eval/`，评测脚本：`src/eval/kgqa_eval.py`、`src/eval/entity_linking_eval.py`
 
 ## 系统架构
 
@@ -55,7 +57,7 @@ flowchart LR
     D --> H
     G --> H
 
-    H --> I[知识图谱问答]
+    H --> I[Text2Cypher KGQA]
     H --> J[手机导购检索]
 
     I --> K[FastAPI 服务]
@@ -63,114 +65,44 @@ flowchart LR
     K --> L[Web UI]
 ```
 
-## 核心技术链路
+## 三条核心技术链路
 
-### 1. 中文商品 NER
-
-NER 任务从商品标题和描述中抽取 3 类实体：
-
-| 标签 | 含义 | 示例 |
-| --- | --- | --- |
-| `ATTR` | 可结构化、可检索的属性值 | `控油`、`无硅油`、`纯棉`、`复古` |
-| `PEOPLE` | 适用对象或人群 | `儿童`、`学生`、`女士`、`男宝宝` |
-| `SPEC` | 规格、容量、型号、组合表达 | `256GB`、`60粒`、`A3294`、`12GB+256GB` |
-
-当前 NER 模块包含：
-
-- 数据预处理、训练、评估和推理
-- span-level error analysis
-- bad case、类型混淆和错误分布统计
-
-评测日志产物位于 `logs/ner/`：
-
-- `ner_error_summary.json`：整体指标、错误类型分布、按实体类型统计
-- `ner_confusion.csv`：实体类型混淆统计
-- `ner_bad_cases.jsonl`：逐样本错误详情
-
-当前错误分布表明，主要瓶颈集中在实体边界和召回质量，而不是单纯的类型判断：
-
-| 错误类型 | 占比 |
-| --- | ---: |
-| spurious | 41.4% |
-| missing | 34.1% |
-| boundary_mismatch | 21.0% |
-| type_mismatch | 2.1% |
-| boundary_and_type_mismatch | 1.4% |
-
-这说明当前 `ATTR` 整体效果较强但仍存在过预测，`PEOPLE` 最稳定，`SPEC` 在型号、容量、范围、单位串和数字字母组合上仍是主要优化方向。
-
-在数据迭代上，先基于 span-level bad case analysis 做错误归因，再回到标注策略和数据集本身做针对性修正。归因发现，早期版本的主要问题集中在：
-
-- `ATTR` 边界过宽，容易把相邻属性合并成一个大 span
-- 低信息量修饰词和泛营销词被过标为 `ATTR`
-- 连续属性短语缺少统一拆分规则
-
-基于这些问题，后续数据策略收紧为：
-
-- `ATTR` 只保留可结构化、可检索的属性值
-- 连续属性默认拆分，减少长 span 合并
-- 排除品类词和低信息量修饰词
-- 强调 `SPEC` 规格串整体保留，避免数字、字母、单位被拆开
-
-对应的指标变化如下：
-
-| 指标 | 早期版本 | 当前版本 | 变化 |
-| --- | ---: | ---: | ---: |
-| overall F1 | 0.6449 | 0.7248 | +0.0799 |
-| ATTR F1 | 0.6077 | 0.7425 | +0.1348 |
-| PEOPLE F1 | 0.7975 | 0.7886 | -0.0089 |
-| SPEC F1 | 0.6683 | 0.5210 | -0.1473 |
-
-这组结果体现了数据优化的收益和代价：`ATTR` 的边界与召回质量明显改善，整体 F1 提升；同时 `SPEC` 被明显挤压，说明规格类样本仍需要作为独立方向继续补强，尤其是型号、容量、范围、单位串和字母数字组合表达。
-> 1. SPEC 漏检显著增加，missing 从 31 增加到 100，导致 recall 从 0.6963 降到 0.4671；
-> 2. SPEC 被 ATTR 吸走的混淆增加，SPEC -> ATTR 从 9 增加到 22；
-> 3. SPEC 边界错误明显增加，boundary mismatch 从 18 增加到 48，典型问题是容量、型号和年份类片段被截短或过度吞并。
-
-> 这说明新的标注规则在“抑制泛化 ATTR”上是有效的，但同时削弱了模型对弱格式规格表达的召回，并放大了规格边界的不稳定性。
-
-### 2. 商品知识图谱构建
-
-知识图谱围绕电商商品组织实体和关系：
-
-- 类目：`Category1`、`Category2`、`Category3`
-- 商品：`SPU`、`SKU`
-- 品牌：`Trademark`
-- 属性：`BaseAttrName`、`BaseAttrValue`、`SaleAttrName`、`SaleAttrValue`
-- 文本实体：`AttributeTag`、`PeopleTag`、`SpecTag`
-
-图谱数据来源包括：
-
-- 本地 `gmall.sql` 中的结构化商品数据
-- OpenBG 商品扩展数据
-- NER 从商品文本中抽取出的文本实体
-
-图谱构建链路的目标不是只做存储，而是为后续问答和导购提供统一事实底座。
-
-### 3. 知识图谱问答
-
-知识图谱问答链路面向全图谱实体，流程如下：
+### 1. Text2Cypher KGQA
 
 ```text
 用户问题 -> Cypher 生成 -> 实体对齐 -> Neo4j 查询 -> 答案生成
 ```
 
-关键点：
+范式定位：
 
-- 使用 Neo4j 全文索引和向量索引做实体对齐
-- LLM 负责生成参数化 Cypher 和自然语言答案
-- 图查询结果作为最终回答的事实依据
+- `Text2Cypher`：LLM 将自然语言转换为参数化 Cypher 和实体槽
+- `Schema-grounded Structured Generation`：输出结构受真实图谱 schema 约束
+- `Hybrid Retrieval for Entity Linking`：将口语化实体对齐到图谱标准实体
 
-示例问题：
+关键设计：
 
-```text
-Apple 都有哪些产品？
-适合学生的商品有哪些？
-某个品牌有哪些 SKU？
-```
+- Cypher 输出必须使用参数化占位符（`$param_0` 等）
+- 待对齐实体单独输出到 `entities_to_align`，与最终查询结构解耦，便于独立评测 entity linking
+- `label` 字段只能来自真实图谱节点标签，避免幻觉标签进入执行链
+- LLM 只生成查询结构与答案文本，不直接决定图谱事实
 
-### 4. 任务型手机导购对话
+### 2. Hybrid Entity Linking
 
-导购系统聚焦手机品类，展示任务导向型对话系统的核心流程：
+项目把实体对齐单独拆出来评测，不是混在最终问答指标里。当前评测集 `77` 条样本，覆盖 `Trademark`、`SPU`、`SKU`、`Category3`，固定在"给定正确 label 条件下"比较三组 baseline：
+
+| baseline | total | top-1 accuracy | top-k recall |
+| --- | ---: | ---: | ---: |
+| `exact_match` | 77 | 0.2597 | 0.2597 |
+| `fulltext` | 77 | 0.7532 | 0.7922 |
+| `hybrid` | 77 | **0.8831** | **0.9351** |
+
+结论：
+
+- `exact_match` 远不够，说明用户表达与图谱标准名之间存在大量格式与表述差异
+- `hybrid`（BM25 + dense vector）明显优于纯全文检索，是当前线上默认对齐策略的合理选择
+- `Trademark` 和 `SPU` 的对齐最稳定；`SKU` 仍是最难实体，原因是名称长、版本差异细、近邻 SKU 相似度高
+
+### 3. 可控任务型导购对话
 
 ```text
 NLU -> Dialogue State -> 缺槽追问 -> Neo4j 图约束检索 -> SPU 去重 -> 候选排序 -> 推荐解释
@@ -202,13 +134,124 @@ NLU -> Dialogue State -> 缺槽追问 -> Neo4j 图约束检索 -> SPU 去重 -> 
 
 导购结果来自 Neo4j 中真实在售 SKU，并按 SPU 维度去重，避免同一机型不同变体重复占位。
 
+## LLM 能力边界矩阵
+
+| 触点 | 输入 | 输出结构 | 是否决定事实 | 兜底 |
+| --- | --- | --- | --- | --- |
+| KGQA Cypher 生成 | 问题 + schema + 最近历史 | `JSON(cypher_query, entities_to_align)` | 否，受 schema 与查询执行约束 | `json_repair` 修复 → `UNSAFE_CYPHER_PATTERN` 检测 |
+| KGQA 答案生成 | 问题 + 查询结果 + 最近历史 | 自然语言文本 | 否，只基于图查询结果表达 | 无结果时固定说明；LLM 缺席时回落 JSON dump |
+| 导购 NLU | 用户话术 | `intent + slots` | 否，规则优先，LLM 仅做复杂语义兜底 | 规则 NLU |
+| 导购回复润色 | 基础回复 + context | 自然语言文本 | 否，不改结论、不造商品 | 异常时返回 fallback 文本 |
+
+## Prompt 设计
+
+KGQA Prompt 不是自由生成，而是围绕明确输入和输出契约设计。
+
+**Cypher 生成输入：**
+
+- `question`：当前用户问题
+- `graph.schema`：Neo4j 自动导出的 schema 信息
+- `recent_history`：通过 `_format_history()` 压缩的最近对话文本
+
+**输出契约（严格 JSON）：**
+
+```json
+{
+  "cypher_query": "MATCH (t:Trademark {name: $param_0})<-[:Belong]-(spu:SPU) RETURN spu.name",
+  "entities_to_align": [
+    {"param_name": "param_0", "entity": "苹果", "label": "Trademark"}
+  ]
+}
+```
+
+**硬约束：**
+
+- `cypher_query` 只能使用参数化占位符，不允许把实体值直接拼进 Cypher
+- `label` 必须 ∈ 真实 schema 节点标签
+- 不需要对齐时 `entities_to_align` 显式返回 `[]`
+- 历史只用于恢复指代，不允许编造历史中不存在的实体或约束
+
+**答案 Prompt 两条红线：**
+
+- 图结果为空时明确说明"当前图谱中没有找到相关信息"
+- 不允许编造查询结果中不存在的事实
+
+## KGQA 分阶段评测
+
+评测不是只看最终回答，而是按链路阶段拆解：JSON 解析成功率 / Cypher 可执行率 / 结果非空率 / 答案关键词命中率 / 实体覆盖率 / 危险 Cypher 检测率。评测集位于 `data/eval/kgqa.jsonl`，共 `39` 条样本，其中 `must_execute=true` 的样本 `38` 条。
+
+| baseline | total | non_empty_result_rate | answer_keyword_hit_rate | entity_all_coverage_rate |
+| --- | ---: | ---: | ---: | ---: |
+| `template` | 39 | 1.0000 | 1.0000 | 1.0000 |
+| `full` | 39 | **0.8947** | **0.8421** | **0.8974** |
+| `ablation` | 39 | 0.6842 | 0.6842 | 0.6923 |
+
+结论：
+
+- `template` 已和当前图谱事实对齐，是可执行上限参考
+- `full` 明显优于 `ablation`，说明实体对齐对"查询非空"和"答案命中"都有显著贡献
+- 当前 KGQA 剩余误差主要集中在实体覆盖和查询生成，而不是 JSON 解析或 Cypher 执行
+- 结构化输出与执行链路已经较稳定，问题收敛到语义层
+
+## 中文商品 NER
+
+NER 抽取 3 类实体：
+
+| 标签 | 含义 | 示例 |
+| --- | --- | --- |
+| `ATTR` | 可结构化、可检索的属性值 | `控油`、`无硅油`、`纯棉`、`复古` |
+| `PEOPLE` | 适用对象或人群 | `儿童`、`学生`、`女士`、`男宝宝` |
+| `SPEC` | 规格、容量、型号、组合表达 | `256GB`、`60粒`、`A3294`、`12GB+256GB` |
+
+span-level error analysis 产物在 `logs/ner/`（`ner_error_summary.json` / `ner_confusion.csv` / `ner_bad_cases.jsonl`）。当前错误分布：
+
+| 错误类型 | 占比 |
+| --- | ---: |
+| spurious | 41.4% |
+| missing | 34.1% |
+| boundary_mismatch | 21.0% |
+| type_mismatch | 2.1% |
+| boundary_and_type_mismatch | 1.4% |
+
+主要瓶颈在边界和召回，不是类型判断。数据迭代策略：收紧 `ATTR` 只保留可结构化属性值、拆分连续属性、排除低信息量修饰词、保留 `SPEC` 规格串整体性。结果是 `ATTR F1 +13.5 pts`、`overall F1 +8.0 pts`，但 `SPEC F1 -14.7 pts` —— 新规则抑制了泛化 `ATTR`，同时削弱了对弱格式规格表达的召回。后续 `SPEC` 作为独立方向继续补强。
+
+更详细的数据策略权衡见 [`REPRODUCTION_GUIDE.md`](REPRODUCTION_GUIDE.md)。
+
+## Controllability & Failure Handling
+
+把可控性和失效处理作为系统设计的一部分，而不是事后补丁：
+
+- **JSON 解析失败**：先尝试原始 JSON 解析，失败后用 `json_repair` 二次修复，原始成功率与修复后成功率分别统计
+- **危险 Cypher 检测**：`UNSAFE_CYPHER_PATTERN` 对 `create / merge / set / delete / remove / drop` 做大小写不敏感检测，当前用于评测统计，不改变生产执行行为
+- **实体对齐兜底**：检索未命中时，保留 LLM 原始实体值继续执行下游 Cypher
+- **导购无结果处理**：存储条件可放宽回退；品牌超预算场景进入 `awaiting_budget_confirmation` 状态机
+- **LLM 不可用降级**：`DEEPSEEK_API_KEY` 缺失时，导购链路仍可运行（规则 NLU + 固定回复），KGQA 返回 503
+
+## 可观测性
+
+`trace_chat()` 导出逐阶段 trace，评测指标与排障诊断共用一份单一事实源。
+
+**评测指标依赖字段：**
+
+- `parse_success_raw`、`parse_success_repaired`
+- `cypher_query_present`
+- `execution_success`、`non_empty_result`
+- `unsafe_cypher`
+
+**排障诊断字段：**
+
+- `raw_cypher_output`、`repaired_cypher_output`
+- `entities_to_align`、`aligned_entities`、`executed_params`
+- `execution_error`、`query_result`、`answer`
+
 ## 技术栈
 
 - 语言与服务：`Python`、`FastAPI`
 - 深度学习与 NLP：`PyTorch`、`Transformers`、`BERT Token Classification`
-- 图数据库与检索：`Neo4j`
+- 图数据库与检索：`Neo4j`（fulltext index + vector index + HYBRID search）
 - 关系型数据源：`MySQL`
-- 模型增强：`LangChain`、`DeepSeek API`
+- LLM 与框架：`LangChain`、`DeepSeek API`
+- 稠密向量模型：`BAAI/bge-base-zh-v1.5`
 - 前端展示：Web Demo
 
 ## 核心模块
@@ -219,25 +262,8 @@ NLU -> Dialogue State -> 缺槽追问 -> Neo4j 图约束检索 -> SPU 去重 -> 
 | `src/datasync/` | MySQL / OpenBG 到 Neo4j 的图谱同步 |
 | `src/dialogue/` | 导购 NLU、会话状态、检索排序、对比和流程编排 |
 | `src/web/` | FastAPI 服务、知识问答服务、索引构建和前端页面 |
+| `src/eval/` | 实体链接评测、KGQA 分阶段评测与日志输出 |
 | `src/configuration/` | 路径、模型、标签、数据库和图谱索引配置 |
-
-## LLM 使用方式
-
-项目采用“规则可控 + LLM 增强”的混合架构：
-
-- 导购 NLU：规则优先，LLM 作为复杂表达下的结构化抽取兜底
-- 导购回复：先生成确定性回复，再由 LLM 做自然语言润色
-- 知识问答：LLM 生成参数化 Cypher 和最终答案
-
-LLM 不直接决定商品候选、价格过滤、在售过滤或排序结果，这些由知识图谱查询和业务逻辑控制。
-
-## 工程特点
-
-- 本地可复现的数据构建链路：`MySQL -> Neo4j -> 索引 -> Web 服务`
-- QA 懒加载设计：没有 `DEEPSEEK_API_KEY` 时，手机导购仍可运行
-- NER 评估支持 bad case 文件、类型混淆和错误分布统计
-- Web 页面支持“导购对话 / 知识问答”双模式
-- OpenBG 数据直接入图，不回写 MySQL，便于扩展商品图谱
 
 ## 快速体验
 
@@ -267,8 +293,16 @@ http://127.0.0.1:8000/
 
 ## 项目边界
 
+**工程层面：**
+
 - 多轮导购当前聚焦手机品类，不覆盖全品类导购
 - 会话状态使用内存存储，生产环境可替换为 Redis 或数据库
 - 导购排序以规则分数为主，没有使用在线反馈或学习排序
-- `SPEC` 规格类实体仍是当前 NER 的主要短板，尤其是型号、容量、范围、单位串和数字字母组合
 - 知识图谱问答依赖 LLM 生成 Cypher，生产场景需要更严格的查询模板、安全校验和权限控制
+
+**算法与评测层面：**
+
+- `SPEC` 规格类实体仍是当前 NER 的主要短板，尤其是型号、容量、范围、单位串和数字字母组合
+- 当前 QA 评测集仍是小而全的种子集（KGQA 39 / Entity Linking 77），适合做链路验证与归因，不等同于成熟 benchmark
+- 评测集由人工构造，未覆盖长尾口语化表述、跨类目推理和多跳查询场景
+- `answer_keyword_hit_rate` 是弱代理指标，当前实现是大小写不敏感子串匹配，不能替代人工评测或 LLM-as-judge

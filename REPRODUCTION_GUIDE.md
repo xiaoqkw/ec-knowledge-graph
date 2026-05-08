@@ -225,13 +225,13 @@ python src\ner\train.py
 python src\ner\eval.py
 ```
 
-`eval.py` ???????????? `logs/ner/` ??? span-level error analysis ????????
+`eval.py` 除了输出整体指标，还会在 `logs/ner/` 下写出 span-level error analysis 产物：
 
 - `ner_bad_cases.jsonl`
 - `ner_confusion.csv`
 - `ner_error_summary.json`
 
-?????????? `data/ner/processed`???????? `preprocess.py`??? `train.py` / `eval.py`???????????????? `id`?`text` ????? `label` ???
+如果本地已经存在旧版 `data/ner/processed`，在重新训练或评估前建议先重新运行 `preprocess.py`。当前处理后的样本会额外保留 `id`、`text` 和裁剪后的 `label`，供 `eval.py` 生成错误分析日志；训练和评估时会再剥离这些分析字段，避免影响 `Trainer` / `DataCollator`。
 
 NER 标签类型配置在 `src/configuration/config.py`，当前为：
 
@@ -270,6 +270,101 @@ python src\web\utils.py
 ```
 
 该步骤会为配置中的实体类型创建全文索引和向量索引，用于知识问答中的实体对齐。
+
+### 5. QA 评测
+
+当前仓库把 QA 评测拆成两层：
+
+- 实体链接评测：单独评估 `query + label -> 图谱标准实体` 的命中能力
+- KGQA 分阶段评测：拆分 JSON 解析、实体对齐、Cypher 执行、结果非空、答案关键词命中和安全性检测
+
+评测集位于 `data/eval/`：
+
+- `entity_linking.jsonl`
+- `kgqa.jsonl`
+
+#### 5.1 实体链接评测
+
+运行：
+
+```powershell
+python src\eval\entity_linking_eval.py
+```
+
+可选参数：
+
+```powershell
+python src\eval\entity_linking_eval.py --baseline hybrid --top-k 5
+```
+
+支持的 baseline：
+
+- `exact_match`：`name` 字段精确匹配
+- `fulltext`：Neo4j 全文索引
+- `hybrid`：全文 + 向量混合检索，对应当前线上实体对齐方案
+
+输出指标：
+
+- `top1_accuracy`
+- `topk_recall`
+- `by_label_accuracy`
+
+日志会写到 `logs/eval/entity_linking_<baseline>.jsonl`。
+
+说明：
+
+- 这个评测默认是在“已知正确 label”条件下进行，不评估上游 LLM 是否选错了节点标签。
+- 当 `--top-k` 改变时，`topk_recall` 会随之改变，不再固定为 top-3。
+
+#### 5.2 KGQA 分阶段评测
+
+运行：
+
+```powershell
+python src\eval\kgqa_eval.py
+```
+
+可选参数：
+
+```powershell
+python src\eval\kgqa_eval.py --baseline template
+python src\eval\kgqa_eval.py --baseline full
+python src\eval\kgqa_eval.py --baseline ablation
+```
+
+支持的 baseline：
+
+- `template`：手写模板 Cypher，不走 LLM，不走实体对齐
+- `full`：完整 QA 流程，包含 LLM Cypher + 实体对齐 + 图查询 + 答案生成
+- `ablation`：保留 LLM 生成的原始实体参数，跳过实体对齐
+
+输出指标：
+
+- `raw_json_parse_success_rate`
+- `repaired_json_parse_success_rate`
+- `cypher_query_present_rate`
+- `cypher_execution_success_rate`
+- `non_empty_result_rate`
+- `answer_keyword_hit_rate`
+- `unsafe_cypher_rate`
+- `entity_any_coverage_rate`
+- `entity_all_coverage_rate`
+
+日志会写到 `logs/eval/kgqa_<baseline>.jsonl`。
+
+说明：
+
+- `cypher_execution_success_rate` 和 `non_empty_result_rate` 只在 `must_execute=true` 的样本子集上统计。
+- `answer_keyword_hit_rate` 只是弱代理指标，当前实现是把答案和关键词统一转成小写后做子串匹配。
+- `unsafe_cypher_rate` 仅对最终 `cypher_query` 做大小写不敏感关键字检测，不扫描答案文本或原始 JSON。
+
+#### 5.3 评测环境前提
+
+`kgqa.jsonl` 里的种子问题必须基于“当前已经同步到评测环境 Neo4j 的事实”构造。也就是说：
+
+- 仅修改 `data/gmall.sql`、OpenBG 原始文件或 NER 原始数据，不会自动更新当前 Neo4j 图谱
+- 在复现 KGQA 评测前，应先确认 `schema_sync.py`、`table_sync.py`、必要时的 `text_sync.py` / `openbg_sync.py` / `openbg_text_sync.py` 已经跑过
+- 如果换了新的 Neo4j 实例，建议先用 `template` baseline 验证 `must_execute=true` 的样本都能成功执行且非空，再比较 `full` 和 `ablation`
 
 ## API
 

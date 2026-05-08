@@ -1,0 +1,77 @@
+{"query": "苹果", "label": "Trademark", "gold": "苹果"}
+{"query": "apple", "label": "Trademark", "gold": "苹果"}
+{"query": "APPLE", "label": "Trademark", "gold": "苹果"}
+{"query": "华为", "label": "Trademark", "gold": "华为"}
+{"query": "huawei", "label": "Trademark", "gold": "华为"}
+{"query": "小米", "label": "Trademark", "gold": "小米"}
+{"query": "xiaomi", "label": "Trademark", "gold": "小米"}
+{"query": "oppo", "label": "Trademark", "gold": "OPPO"}
+{"query": "OPPO", "label": "Trademark", "gold": "OPPO"}
+{"query": "vivo", "label": "Trademark", "gold": "VIVO"}
+{"query": "VIVO", "label": "Trademark", "gold": "VIVO"}
+{"query": "tcl", "label": "Trademark", "gold": "TCL"}
+{"query": "TCL", "label": "Trademark", "gold": "TCL"}
+{"query": "redmi", "label": "Trademark", "gold": "红米"}
+{"query": "Redmi", "label": "Trademark", "gold": "红米"}
+{"query": "pier auge", "label": "Trademark", "gold": "Pier Auge"}
+{"query": "PierAuge", "label": "Trademark", "gold": "Pier Auge"}
+{"query": "caremille", "label": "Trademark", "gold": "CAREMiLLE"}
+{"query": "CAREMiLLE", "label": "Trademark", "gold": "CAREMiLLE"}
+{"query": "iphone 12", "label": "SPU", "gold": "Apple iPhone 12"}
+{"query": "apple iphone 12", "label": "SPU", "gold": "Apple iPhone 12"}
+{"query": "iphone12", "label": "SPU", "gold": "Apple iPhone 12"}
+{"query": "iphone 16 pro", "label": "SPU", "gold": "Apple iPhone 16 Pro"}
+{"query": "iphone16pro", "label": "SPU", "gold": "Apple iPhone 16 Pro"}
+{"query": "mate 40 pro", "label": "SPU", "gold": "华为Mate 40 pro"}
+{"query": "华为mate40pro", "label": "SPU", "gold": "华为Mate 40 pro"}
+{"query": "mate40pro", "label": "SPU", "gold": "华为Mate 40 pro"}
+{"query": "redmi 10x", "label": "SPU", "gold": "Redmi 10X"}
+{"query": "redmi10x", "label": "SPU", "gold": "Redmi 10X"}
+{"query": "Redmi 10X", "label": "SPU", "gold": "Redmi 10X"}
+{"query": "redmi turbo4 pro", "label": "SPU", "gold": "REDMI Turbo4 Pro"}
+{"query": "redmiturbo4pro", "label": "SPU", "gold": "REDMI Turbo4 Pro"}
+{"query": "redmi turbo 4 pro", "label": "SPU", "gold": "REDMI Turbo4 Pro"}
+{"query": "手机", "label": "Category3", "gold": "手机"}
+{"query": "手机耳机", "label": "Category3", "gold": "手机耳机"}
+{"query": "手机 耳机", "label": "Category3", "gold": "手机耳机"}
+{"query": "苹果配件", "label": "Category3", "gold": "苹果配件"}
+{"query": "苹果 配件", "label": "Category3", "gold": "苹果配件"}
+{"query": "iphone 配件", "label": "Category3", "gold": "iPhone 配件"}
+{"query": "iphone配件", "label": "Category3", "gold": "iPhone 配件"}
+{"query": "手机贴膜", "label": "Category3", "gold": "手机贴膜"}
+{"query": "手机 贴膜", "label": "Category3", "gold": "手机贴膜"}
+{"query": "手机存储卡", "label": "Category3", "gold": "手机存储卡"}
+{"query": "手机 存储卡", "label": "Category3", "gold": "手机存储卡"}
+{"query": "历史", "label": "Category3", "gold": "历史"}
+{"query": "小说", "label": "Category3", "gold": "小说"}
+{"query": "艺术", "label": "Category3", "gold": "艺术"}
+{"query": "法律", "label": "Category3", "gold": "法律"}
+{"query": "0-2", "label": "Category3", "gold": "0-2岁"}
+{"query": "0-2岁", "label": "Category3", "gold": "0-2岁"}
+{"query": "0-2 岁", "label": "Category3", "gold": "0-2岁"}
+{"query": "3-6", "label": "Category3", "gold": "3-6岁"}
+{"query": "3-6岁", "label": "Category3", "gold": "3-6岁"}
+{"query": "3-6 岁", "label": "Category3", "gold": "3-6岁"}
+{"query": "11-14", "label": "Category3", "gold": "11-14岁"}
+{"query": "11-14岁", "label": "Category3", "gold": "11-14岁"}
+{"query": "11-14 岁", "label": "Category3", "gold": "11-14岁"}
+{"query": "appleiphone12(a2404)128gb黑色", "label": "SKU", "gold": "Apple iPhone 12 (A2404) 128GB 黑色 支持移动联通电信5G 双卡双待手机"}
+{"query": "apple iphone 12 a2404 128gb 黑色", "label": "SKU", "gold": "Apple iPhone 12 (A2404) 128GB 黑色 支持移动联通电信5G 双卡双待手机"}
+{"query": "appleiphone12(a2404)64gb红色", "label": "SKU", "gold": "Apple iPhone 12 (A2404) 64GB 红色 支持移动联通电信5G 双卡双待手机"}
+{"query": "apple iphone 12 a2404 64gb 红色", "label": "SKU", "gold": "Apple iPhone 12 (A2404) 64GB 红色 支持移动联通电信5G 双卡双待手机"}
+{"query": "appleiphone12(a2404)64gb蓝色", "label": "SKU", "gold": "Apple iPhone 12 (A2404) 64GB 蓝色 支持移动联通电信5G 双卡双待手机"}
+{"query": "apple iphone 12 a2404 64gb 蓝色", "label": "SKU", "gold": "Apple iPhone 12 (A2404) 64GB 蓝色 支持移动联通电信5G 双卡双待手机"}
+{"query": "tcl 85q6 85 4k ai memc 2+16gb", "label": "SKU", "gold": "TCL 85Q6 85英寸 巨幕私人影院电视 4K超高清 AI智慧屏 全景全面屏 MEMC运动防抖 2+16GB 液晶平板电视机"}
+{"query": "tcl85q6 85 4k 2+16gb", "label": "SKU", "gold": "TCL 85Q6 85英寸 巨幕私人影院电视 4K超高清 AI智慧屏 全景全面屏 MEMC运动防抖 2+16GB 液晶平板电视机"}
+{"query": "tcl 65q10 65 qled ai memc 3+32gb", "label": "SKU", "gold": "TCL 65Q10 65英寸 QLED原色量子点电视 安桥音响 AI声控智慧屏 超薄全面屏 MEMC防抖 3+32GB 平板电视"}
+{"query": "tcl65q10 65 qled 3+32gb", "label": "SKU", "gold": "TCL 65Q10 65英寸 QLED原色量子点电视 安桥音响 AI声控智慧屏 超薄全面屏 MEMC防抖 3+32GB 平板电视"}
+{"query": "redmi 10x 4g helio g85 128gb 4gb+128gb", "label": "SKU", "gold": "Redmi 10X 4G Helio G85游戏芯 4800万超清四摄 5020mAh大电量 小孔全面屏 128GB大存储 4GB+128GB 冰雾白 游戏智能手机 小米 红米"}
+{"query": "redmi10x 4g 4gb+128gb", "label": "SKU", "gold": "Redmi 10X 4G Helio G85游戏芯 4800万超清四摄 5020mAh大电量 小孔全面屏 128GB大存储 4GB+128GB 冰雾白 游戏智能手机 小米 红米"}
+{"query": "redmi 10x 4g helio g85 128gb 8gb+128gb", "label": "SKU", "gold": "Redmi 10X 4G Helio G85游戏芯 4800万超清四摄 5020mAh大电量 小孔全面屏 128GB大存储 8GB+128GB 明月灰 游戏智能手机 小米 红米"}
+{"query": "redmi10x 4g 8gb+128gb", "label": "SKU", "gold": "Redmi 10X 4G Helio G85游戏芯 4800万超清四摄 5020mAh大电量 小孔全面屏 128GB大存储 8GB+128GB 明月灰 游戏智能手机 小米 红米"}
+{"query": "caremille m01", "label": "SKU", "gold": "CAREMiLLE珍慕奶油小方口红 雾面滋润保湿持久丝绒唇膏 M01醉慕吟"}
+{"query": "caremille 口红 m01", "label": "SKU", "gold": "CAREMiLLE珍慕奶油小方口红 雾面滋润保湿持久丝绒唇膏 M01醉慕吟"}
+{"query": "i-softto z02", "label": "SKU", "gold": "索香缇i-Softto 口红不掉色唇膏保湿滋润 璀璨金钻哑光唇膏 Z02少女红 活力青春 璀璨金钻哑光唇膏"}
+{"query": "i-softto z03", "label": "SKU", "gold": "索香缇i-Softto 口红不掉色唇膏保湿滋润 璀璨金钻哑光唇膏 Z03女王红 性感冷艳 璀璨金钻哑光唇膏"}
+{"query": "十月稻田 5kg", "label": "SKU", "gold": "十月稻田 辽河长粒香 东北大米 5kg"}
+{"query": "十月稻田 长粒香 5kg", "label": "SKU", "gold": "十月稻田 辽河长粒香 东北大米 5kg"}
