@@ -13,6 +13,29 @@ class Answer(BaseModel):
     session_id: str
 
 
+class AgentTurnRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+
+
+class PlanSummaryItem(BaseModel):
+    tool: str
+
+
+class AgentResponse(BaseModel):
+    answer: str
+    session_id: str
+    trace_id: str
+    plan_summary: list[PlanSummaryItem] = Field(default_factory=list)
+    latency_ms: int = 0
+    fallback_used: str | None = None
+    trace: dict | None = None
+
+
+class ReplayRequest(BaseModel):
+    trace_ids: list[str] = Field(default_factory=list)
+
+
 class RecommendationItemView(BaseModel):
     sku_id: int
     spu_id: int

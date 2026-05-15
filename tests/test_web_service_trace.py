@@ -78,7 +78,51 @@ class ChatServiceTraceTestCase(unittest.TestCase):
             "query_result": [],
             "answer": "final answer",
         }
-        self.assertEqual(service.chat("Apple 都有哪些产品？"), "final answer")
+        self.assertEqual(service.chat("test"), "final answer")
+
+    def test_trace_chat_marks_execution_unsuccessful_when_query_not_executed(self):
+        service = self.build_service()
+        service.controller = object()
+        service.run_agent = lambda question, history=None, align_entities=True: type(
+            "Result",
+            (),
+            {
+                "answer": "answer",
+                "trace": type(
+                    "Trace",
+                    (),
+                    {
+                        "metadata": {
+                            "planner_raw_output": "{}",
+                            "planner_repaired_output": "{}",
+                            "parsed_payload": {"cypher_query": "MATCH (n) RETURN n"},
+                            "planner_parse_success_raw": True,
+                            "planner_parse_success_repaired": True,
+                            "cypher_query": "MATCH (n) RETURN n",
+                            "entities_to_align": [],
+                            "aligned_entities": [],
+                            "executed_params": {},
+                            "query_result": [],
+                        },
+                        "failure_tags": ["plan_schema_invalid"],
+                        "tool_calls": [
+                            type(
+                                "Call",
+                                (),
+                                {
+                                    "tool_name": "graph_query_tool",
+                                    "ok": False,
+                                    "metadata": {"error": "schema invalid"},
+                                },
+                            )()
+                        ],
+                        "request_id": "trace-1",
+                    },
+                )(),
+            },
+        )()
+        trace = service.trace_chat("question")
+        self.assertFalse(trace["execution_success"])
 
 
 if __name__ == "__main__":

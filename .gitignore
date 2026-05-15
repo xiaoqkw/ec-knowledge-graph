@@ -25,6 +25,7 @@ ENV/
 !.env.example
 AGENTS.md
 CLAUDE.md
+plan.md
 progress.txt
 
 # IDE and editor files

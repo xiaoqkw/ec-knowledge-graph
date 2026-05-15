@@ -99,6 +99,50 @@ class WebAppTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["state"]["suggested_budget_min"], 8197)
 
+    def test_agent_chat_returns_trace_and_debug_payload(self):
+        class StubQAService:
+            def run_agent(self, message, history=None, session_id=None, align_entities=True):
+                trace = type(
+                    "Trace",
+                    (),
+                    {
+                        "request_id": "trace-1",
+                        "plan": [type("ToolPlan", (), {"tool_name": "entity_link_tool"})()],
+                        "tool_calls": [type("ToolCall", (), {"tool_name": "entity_link_tool"})()],
+                        "total_latency_ms": 12,
+                        "fallback_used": None,
+                        "dict": lambda self: {"request_id": "trace-1", "tool_calls": []},
+                    },
+                )()
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "answer": "agent answer",
+                        "session_id": session_id,
+                        "trace": trace,
+                    },
+                )()
+
+        qa_stub = StubQAService()
+        with patch.object(web.app, "qa_service", qa_stub), patch.object(
+            web.app,
+            "qa_service_error",
+            None,
+        ), patch.object(
+            web.app,
+            "qa_session_store",
+            InMemoryQASessionStore(),
+        ):
+            client = TestClient(web.app.app)
+            response = client.post("/api/agent/chat?debug=true", json={"message": "test"})
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["answer"], "agent answer")
+            self.assertEqual(payload["trace_id"], "trace-1")
+            self.assertEqual(payload["plan_summary"][0]["tool"], "entity_link_tool")
+            self.assertEqual(payload["trace"]["request_id"], "trace-1")
+
 
 if __name__ == "__main__":
     unittest.main()

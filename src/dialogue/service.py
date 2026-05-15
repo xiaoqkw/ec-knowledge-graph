@@ -4,10 +4,12 @@ import json
 import re
 from typing import TYPE_CHECKING, Callable
 
+from agent import AgentController, AgentRuntime, AgentResources
+from agent.tools.product_search_tool import ProductSearchOutput
 from configuration.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
 from dialogue.nlu import DialogueNLU
 from dialogue.state import InMemorySessionStore
-from dialogue.types import DialogueState, REQUIRED_SLOTS
+from dialogue.types import DialogueState, RecommendationItem, REQUIRED_SLOTS
 
 try:
     from langchain_deepseek import ChatDeepSeek
@@ -47,6 +49,7 @@ class DialogueService:
         nlu: DialogueNLU | None = None,
         retriever: "PhoneGuideRetriever" | None = None,
         llm_enabled: bool = True,
+        agent_controller: AgentController | None = None,
     ):
         self.store = store or InMemorySessionStore()
         self.nlu = nlu or DialogueNLU()
@@ -55,11 +58,16 @@ class DialogueService:
 
             retriever = PhoneGuideRetriever()
         self.retriever = retriever
+        if agent_controller is None:
+            runtime = AgentRuntime(resources=AgentResources(llm_enabled=llm_enabled))
+            agent_controller = AgentController(runtime, retriever=self.retriever, enable_explain=False)
+        self.agent_controller = agent_controller
         self.llm = None
         if llm_enabled and DEEPSEEK_API_KEY and ChatDeepSeek is not None:
             self.llm = ChatDeepSeek(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY)
 
     def close(self) -> None:
+        self.agent_controller.runtime.close()
         self.retriever.close()
 
     def chat(
@@ -117,7 +125,7 @@ class DialogueService:
     def _handle_slot_question(self, state: DialogueState) -> dict:
         next_slot = state.pending_slots[0]
         prompts = {
-            "budget_max": "你的预算大概是多少？比如 3000 以内、5000 左右都可以。",
+            "budget_max": "你的预算大概是多少？比如 3000 元以内、5000 左右都可以。",
             "use_case": "你更看重哪一方面？我这边先支持拍照、游戏、续航、性价比四种诉求。",
         }
         return self._build_response(
@@ -130,12 +138,12 @@ class DialogueService:
         state.awaiting_budget_confirmation = False
         state.suggested_budget_min = None
 
-        recommendations = self.retriever.search(state.slots)
+        recommendations = self._search_products(state.slots, session_id=state.session_id)
         if not recommendations and state.slots.get("storage"):
             original_storage = state.slots["storage"]
             relaxed_slots = dict(state.slots)
             relaxed_slots["storage"] = None
-            recommendations = self.retriever.search(relaxed_slots)
+            recommendations = self._search_products(relaxed_slots, session_id=state.session_id)
             if recommendations:
                 message = (
                     f"没有找到完全满足 {original_storage} 存储条件的机型，"
@@ -159,7 +167,7 @@ class DialogueService:
                 )
 
         if not recommendations:
-            minimum = self.retriever.get_min_price(state.slots.get("brand"))
+            minimum = self._get_min_price(state.slots.get("brand"), session_id=state.session_id)
             if minimum is not None and state.slots.get("budget_max") is not None and minimum > state.slots["budget_max"]:
                 state.awaiting_budget_confirmation = True
                 state.suggested_budget_min = minimum
@@ -194,12 +202,13 @@ class DialogueService:
             return self._build_response(
                 state,
                 action="ask_slot",
-                message="当前候选不足两款，先让我给你推荐至少两款手机，再帮你做对比。",
+                message="当前候选不够两款，先让我给你推荐至少两款手机，再帮你做对比。",
             )
 
-        message = self.retriever.compare(
+        message = self._compare_products(
             state.last_recommendation_spu_ids[:2],
             state.slots.get("use_case"),
+            session_id=state.session_id,
         )
         return self._build_response(
             state,
@@ -276,7 +285,7 @@ class DialogueService:
             "你是电商手机导购助手。"
             "请根据给定上下文，把回复润色成自然、简洁、具体的中文对话。"
             "不要编造商品和价格，不要改变原有结论。"
-            "如果用户可以确认放宽预算，就明确告诉用户可以直接回复“帮我筛一下吧”。\n"
+            "如果用户可以确认放宽预算，就明确告诉用户可以直接回复“帮我筛一下”。\n"
             f"上下文: {json.dumps(context, ensure_ascii=False)}\n"
             f"基础回复: {fallback}"
         )
@@ -286,6 +295,45 @@ class DialogueService:
         except Exception:
             return fallback
         return content or fallback
+
+    def _search_products(self, slots: dict, *, session_id: str) -> list[RecommendationItem]:
+        record = self.agent_controller.runtime.run_tool_only(
+            tool_name="product_search_tool",
+            payload={"slots": slots, "limit": 3},
+            user_query="dialogue_product_search",
+            session_id=session_id,
+            intent="dialogue_search",
+        )
+        if not record.ok:
+            return self.retriever.search(slots)
+        recommendations = []
+        for item in record.output_payload.get("recommendations", []):
+            recommendations.append(RecommendationItem(**item))
+        return recommendations
+
+    def _compare_products(self, spu_ids: list[int], use_case: str | None, *, session_id: str) -> str:
+        record = self.agent_controller.runtime.run_tool_only(
+            tool_name="product_compare_tool",
+            payload={"spu_ids": spu_ids, "use_case": use_case},
+            user_query="dialogue_product_compare",
+            session_id=session_id,
+            intent="dialogue_compare",
+        )
+        if not record.ok:
+            return self.retriever.compare(spu_ids, use_case)
+        return record.output_payload.get("comparison", "")
+
+    def _get_min_price(self, brand: str | None, *, session_id: str) -> int | None:
+        record = self.agent_controller.runtime.run_tool_only(
+            tool_name="price_floor_tool",
+            payload={"brand": brand},
+            user_query="dialogue_price_floor",
+            session_id=session_id,
+            intent="dialogue_price_floor",
+        )
+        if not record.ok:
+            return self.retriever.get_min_price(brand)
+        return record.output_payload.get("min_price")
 
     @staticmethod
     def _build_response(

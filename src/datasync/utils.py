@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pymysql
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, Query
 from pymysql.cursors import DictCursor
 
 from configuration.config import GRAPH_NODE_LABELS, MYSQL_CONFIG, NEO4J_CONFIG  
@@ -26,15 +26,17 @@ class Neo4jWriter:
     def close(self):
         self.driver.close()
 
-    def run_query(self, cypher: str, **parameters):
+    def run_query(self, cypher: str, *, timeout: float | None = None, **parameters):
         normalized = {
             key: self._normalize_value(value)
             for key, value in parameters.items()
         }
-        return self.driver.execute_query(cypher, **normalized)
+        query = Query(cypher, timeout=timeout) if timeout is not None else cypher
+        return self.driver.execute_query(query, **normalized)
 
-    def query(self, cypher: str, **parameters) -> list[dict]:
-        records, _, _ = self.driver.execute_query(cypher, **parameters)
+    def query(self, cypher: str, *, timeout: float | None = None, **parameters) -> list[dict]:
+        query = Query(cypher, timeout=timeout) if timeout is not None else cypher
+        records, _, _ = self.driver.execute_query(query, **parameters)
         return [record.data() for record in records]
 
     def create_constraints(self, labels: list[str] | None = None):
