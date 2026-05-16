@@ -12,6 +12,7 @@
 
 - **KGQA 分阶段评测**：`full` vs. `ablation`（去掉实体对齐）在 `non_empty_result_rate` 上 `+20.5 pts`，在 `answer_keyword_hit_rate` 上 `+15.8 pts`
 - **实体链接评测**：`hybrid` vs. `fulltext` 在 top-1 accuracy 上 `+13.0 pts`，top-k recall 上 `+14.3 pts`
+- **多轮导购评测**：`30` 条状态机 / 工具调用回归集上 `task_success_rate=100%`；真实单轮 NLU 诊断集 `intent_accuracy=90%`、`slot_f1=100%`；真实 smoke 联调 `5/5` 通过
 - **NER 数据策略迭代**：`ATTR F1 +13.5 pts`，`overall F1 +8.0 pts`，同时识别出 `SPEC` 作为独立补强方向
 - **可控性优先**：LLM 不直接决定商品事实与排序；结构化输出有 `json_repair` 修复，Cypher 执行前经过只读安全门禁；导购 NLU 规则优先、LLM 兜底
 - **可观测性**：`ExecutionTrace` 持久化 Agent 工具计划、工具调用、失败标签和延迟；`trace_chat()` 继续兼容旧评测字段
@@ -36,13 +37,18 @@
 | KGQA | entity all coverage rate | ablation 0.6923 | full 0.8974 | **+20.5 pts** |
 | Entity Linking | top-1 accuracy | fulltext 0.7532 | hybrid 0.8831 | **+13.0 pts** |
 | Entity Linking | top-k recall | fulltext 0.7922 | hybrid 0.9351 | **+14.3 pts** |
+| Dialogue Eval | task success rate | - | `30` 条回归任务 `1.0000` | - |
+| Dialogue Eval | intent accuracy | - | 真实 NLU 诊断 `0.9000` | - |
+| Dialogue Eval | slot F1 | - | 真实 NLU 诊断 `1.0000` | - |
+| Dialogue Eval | smoke pass rate | - | `5/5` 通过 | - |
 | NER（数据策略迭代） | ATTR F1 | 初版 0.6077 | 当前 0.7425 | **+13.5 pts** |
 | NER（数据策略迭代） | overall F1 | 初版 0.6449 | 当前 0.7248 | +8.0 pts |
 | NER（数据策略迭代） | SPEC F1 | 初版 0.6683 | 当前 0.5210 | -14.7 pts（已识别为补强方向） |
 
 - KGQA `template` baseline 在当前图谱事实下达到 1.0000，作为可执行上限参考
 - KGQA 评测集 `39` 条（`must_execute=38`），Entity Linking 评测集 `77` 条
-- 结果数据源：`logs/eval/`，评测脚本：`src/eval/kgqa_eval.py`、`src/eval/entity_linking_eval.py`
+- 导购评测集：主回归任务 `30` 条、NLU 诊断样本 `10` 条、smoke case `5` 条
+- 结果数据源：`logs/eval/`，评测脚本：`src/eval/kgqa_eval.py`、`src/eval/entity_linking_eval.py`、`src/eval/dialogue_eval.py`、`src/eval/dialogue_nlu_eval.py`、`src/eval/dialogue_smoke.py`
 
 ## 系统架构
 
@@ -138,6 +144,12 @@ NLU -> Dialogue State -> 缺槽追问 -> Neo4j 图约束检索 -> SPU 去重 -> 
 导购结果来自 Neo4j 中真实在售 SKU，并按 SPU 维度去重，避免同一机型不同变体重复占位。
 
 导购链路仍由 `DialogueService` 负责状态机和缺槽追问，但底层商品检索、候选对比和价格下限查询已经包装为 Agent Tool，与 KGQA 共用运行时 trace 机制。
+
+当前导购评测分为三层：
+
+- `dialogue_eval.py`：`StubNLU + FixtureRetriever` 的状态机 / 工具调用回归集
+- `dialogue_nlu_eval.py`：真实 `DialogueNLU.parse()` 的单轮诊断集
+- `dialogue_smoke.py`：真实 Neo4j + 真实 LLM 的少量 smoke 联调
 
 ## LLM 能力边界矩阵
 

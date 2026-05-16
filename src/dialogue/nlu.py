@@ -123,7 +123,7 @@ class DialogueNLU:
 
     @staticmethod
     def _is_confident(result: NLUResult, state_has_context: bool) -> bool:
-        if result.intent in {"reset", "compare"}:
+        if result.intent in {"reset", "compare", "fallback_qa"}:
             return True
         if result.slots:
             return True

@@ -19,15 +19,67 @@ except ImportError:
 
 @unittest.skipIf(TestClient is None, "fastapi is not installed in the current environment")
 class WebAppTestCase(unittest.TestCase):
+    def test_get_qa_service_uses_shared_agent_controller(self):
+        stub_controller = object()
+        stub_service = object()
+        with patch.object(web.app, "qa_service", None), patch.object(
+            web.app,
+            "qa_service_error",
+            None,
+        ), patch.object(
+            web.app,
+            "get_agent_controller",
+            return_value=stub_controller,
+        ), patch.object(
+            web.app,
+            "ChatService",
+            return_value=stub_service,
+        ) as chat_service_cls:
+            service = web.app.get_qa_service()
+            self.assertIs(service, stub_service)
+            chat_service_cls.assert_called_once_with(controller=stub_controller)
+
     def test_chat_keeps_session_history(self):
         class StubQAService:
             def __init__(self):
                 self.calls = []
 
-            def chat(self, message, history=None):
+            def run_agent(self, message, history=None, session_id=None, session=None, enable_session_memory=False, align_entities=True):
                 captured_history = [dict(item) for item in (history or [])]
                 self.calls.append((message, captured_history))
-                return f"answer:{message}"
+                trace = type(
+                    "Trace",
+                    (),
+                    {
+                        "request_id": f"trace-{len(self.calls)}",
+                        "plan": [],
+                        "tool_calls": [],
+                        "total_latency_ms": 12,
+                        "fallback_used": None,
+                        "metadata": {
+                            "confirmed_entity_cache_updates": [],
+                            "session_failure_memory": None,
+                        },
+                    },
+                )()
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "answer": f"answer:{message}",
+                        "session_id": session_id,
+                        "trace": trace,
+                    },
+                )()
+
+            def build_session_commit_payload(self, result, *, user_message):
+                return {
+                    "user_message": user_message,
+                    "assistant_message": result.answer,
+                    "trace_id": result.trace.request_id,
+                    "entity_cache_updates": [],
+                    "recent_failure": None,
+                }
 
         qa_stub = StubQAService()
         with patch.object(web.app, "qa_service", qa_stub), patch.object(
@@ -72,24 +124,143 @@ class WebAppTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 503)
             self.assertIn("disabled", response.json()["detail"])
 
+    def test_close_services_clears_error_flags(self):
+        with patch.object(web.app, "qa_service_error", "qa failed"), patch.object(
+            web.app,
+            "dialogue_service_error",
+            "dialogue failed",
+        ), patch.object(
+            web.app,
+            "qa_service",
+            None,
+        ), patch.object(
+            web.app,
+            "dialogue_service",
+            None,
+        ), patch.object(
+            web.app,
+            "agent_runtime",
+            None,
+        ), patch.object(
+            web.app,
+            "shared_retriever",
+            None,
+        ), patch.object(
+            web.app,
+            "agent_controller",
+            None,
+        ):
+            web.app.close_services()
+            self.assertIsNone(web.app.qa_service_error)
+            self.assertIsNone(web.app.dialogue_service_error)
+
+    def test_get_qa_service_can_retry_after_shutdown_clears_error(self):
+        stub_controller = object()
+        stub_service = object()
+        closable = type("Closable", (), {"close": lambda self: None})()
+        with patch.object(web.app, "qa_service", None), patch.object(
+            web.app,
+            "qa_service_error",
+            "old failure",
+        ), patch.object(
+            web.app,
+            "dialogue_service_error",
+            None,
+        ), patch.object(
+            web.app,
+            "agent_runtime",
+            None,
+        ), patch.object(
+            web.app,
+            "shared_retriever",
+            None,
+        ), patch.object(
+            web.app,
+            "agent_controller",
+            None,
+        ), patch.object(
+            web.app,
+            "dialogue_service",
+            closable,
+        ):
+            web.app.close_services()
+        with patch.object(web.app, "get_agent_controller", return_value=stub_controller), patch.object(
+            web.app,
+            "ChatService",
+            return_value=stub_service,
+        ):
+            service = web.app.get_qa_service()
+            self.assertIs(service, stub_service)
+
+    def test_get_dialogue_service_can_retry_after_shutdown_clears_error(self):
+        stub_controller = object()
+        stub_dialogue_service = object()
+        stub_retriever = object()
+        with patch.object(web.app, "qa_service_error", None), patch.object(
+            web.app,
+            "dialogue_service_error",
+            "old failure",
+        ), patch.object(
+            web.app,
+            "dialogue_service",
+            None,
+        ), patch.object(
+            web.app,
+            "agent_runtime",
+            None,
+        ), patch.object(
+            web.app,
+            "shared_retriever",
+            None,
+        ), patch.object(
+            web.app,
+            "agent_controller",
+            None,
+        ), patch.object(
+            web.app,
+            "qa_service",
+            None,
+        ):
+            web.app.close_services()
+        with patch.object(web.app, "get_agent_controller", return_value=stub_controller), patch.object(
+            web.app,
+            "shared_retriever",
+            stub_retriever,
+        ), patch.object(
+            web.app,
+            "DialogueService",
+            return_value=stub_dialogue_service,
+        ):
+            service = web.app.get_dialogue_service()
+            self.assertIs(service, stub_dialogue_service)
+
     def test_dialogue_response_keeps_suggested_budget_min(self):
-        with patch.object(
-            web.app.dialogue_service,
-            "chat",
-            return_value={
-                "session_id": "session-1",
-                "message": "需要放宽预算",
-                "mode": "dialogue",
-                "action": "ask_slot",
-                "state": {
-                    "domain": "phone_guide",
-                    "intent": "inform",
-                    "filled_slots": {"brand": "苹果", "budget_max": 4000},
-                    "pending_slots": [],
-                    "suggested_budget_min": 8197,
-                },
-                "recommendations": [],
+        stub_dialogue_service = type(
+            "StubDialogueService",
+            (),
+            {
+                "chat": staticmethod(
+                    lambda *args, **kwargs: {
+                        "session_id": "session-1",
+                        "message": "需要放宽预算",
+                        "mode": "dialogue",
+                        "action": "ask_slot",
+                        "state": {
+                            "domain": "phone_guide",
+                            "intent": "inform",
+                            "filled_slots": {"brand": "苹果", "budget_max": 4000},
+                            "pending_slots": [],
+                            "suggested_budget_min": 8197,
+                        },
+                        "recommendations": [],
+                    }
+                )
             },
+        )()
+        with patch.object(
+            web.app,
+            "get_dialogue_service",
+            return_value=stub_dialogue_service,
         ):
             client = TestClient(web.app.app)
             response = client.post(
@@ -101,7 +272,7 @@ class WebAppTestCase(unittest.TestCase):
 
     def test_agent_chat_returns_trace_and_debug_payload(self):
         class StubQAService:
-            def run_agent(self, message, history=None, session_id=None, align_entities=True):
+            def run_agent(self, message, history=None, session_id=None, session=None, enable_session_memory=False, align_entities=True):
                 trace = type(
                     "Trace",
                     (),
@@ -123,6 +294,15 @@ class WebAppTestCase(unittest.TestCase):
                         "trace": trace,
                     },
                 )()
+
+            def build_session_commit_payload(self, result, *, user_message):
+                return {
+                    "user_message": user_message,
+                    "assistant_message": result.answer,
+                    "trace_id": result.trace.request_id,
+                    "entity_cache_updates": [],
+                    "recent_failure": None,
+                }
 
         qa_stub = StubQAService()
         with patch.object(web.app, "qa_service", qa_stub), patch.object(

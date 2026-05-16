@@ -113,6 +113,9 @@ src/
 |   |-- state.py
 |   `-- types.py
 |-- eval/
+|   |-- dialogue_eval.py
+|   |-- dialogue_nlu_eval.py
+|   |-- dialogue_smoke.py
 |   |-- entity_linking_eval.py
 |   `-- kgqa_eval.py
 |-- ner/
@@ -238,10 +241,116 @@ D:\Anaconda_envs\envs\graph\python.exe src\web\utils.py
 
 评测集位于：
 
+- `data/eval/dialogue_tasks.jsonl`
+- `data/eval/dialogue_nlu_samples.jsonl`
+- `data/eval/dialogue_smoke_cases.jsonl`
 - `data/eval/entity_linking.jsonl`
 - `data/eval/kgqa.jsonl`
 
-### 5.1 实体链接评测
+### 5.1 多轮导购评测
+
+当前导购评测分三层，口径严格分开：
+
+- `dialogue_eval.py`：`StubNLU + FixtureRetriever` 的状态机 / 工具调用回归集
+- `dialogue_nlu_eval.py`：真实 `DialogueNLU.parse()` 的单轮诊断集
+- `dialogue_smoke.py`：真实 Neo4j + 真实 LLM 的少量 smoke 联调
+
+#### 5.1.1 主评测：状态机 / 工具调用回归集
+
+运行：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\dialogue_eval.py
+```
+
+输入：
+
+- `data/eval/dialogue_tasks.jsonl`
+
+当前任务规模：
+
+- `30` 条任务
+- `7` 类覆盖：补槽 / 预算表达 / 品牌存储 / 预算确认 / compare / fallback / reset
+
+主指标：
+
+- `task_success_rate`
+- `state_transition_correct_rate`
+- `tool_invocation_correct_rate`
+- `compare_success_rate`
+- `avg_turns_to_success`
+- `fallback_rate`
+- `recommendation_non_empty_rate`
+
+输出文件：
+
+- `logs/eval/dialogue_offline.jsonl`
+- `logs/eval/dialogue_summary.json`
+
+说明：
+
+- 这一层使用 `nlu_outputs` 作为固定输入，评的是状态机与工具调用，不评真实 NLU 抽取质量。
+- `expected_tool_counts` 用于校验每轮 `product_search_tool / product_compare_tool / price_floor_tool` 的调用是否符合预期。
+- `success_turn` 在数据集中保留为人工注释字段；当前评测逻辑已改为按运行时首次成功终态计算 `avg_turns_to_success`。
+
+#### 5.1.2 NLU 诊断集
+
+运行：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\dialogue_nlu_eval.py
+```
+
+输入：
+
+- `data/eval/dialogue_nlu_samples.jsonl`
+
+当前样本规模：
+
+- `10` 条单轮 NLU 样本
+
+指标：
+
+- `intent_accuracy`
+- `slot_f1`
+- `fallback_to_llm_rate`
+
+输出文件：
+
+- `logs/eval/dialogue_nlu_cases.jsonl`
+- `logs/eval/dialogue_nlu_diagnostic.json`
+
+说明：
+
+- 这一层直接调用真实 `DialogueNLU.parse()`，不进入完整对话循环。
+- 如果当前环境缺少真实 LLM 初始化依赖，脚本会输出结构化错误并以非零状态退出。
+
+#### 5.1.3 Smoke 联调
+
+运行：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\dialogue_smoke.py
+```
+
+输入：
+
+- `data/eval/dialogue_smoke_cases.jsonl`
+
+当前样本规模：
+
+- `5` 条 smoke case
+
+输出：
+
+- `logs/eval/dialogue_smoke_<date>.json`
+
+说明：
+
+- 这一层连真实 Neo4j + 真实 LLM，只验证链路打通和 trace 排障。
+- 失败时会按同一 `session_id` 聚合导购工具 trace；QA fallback 场景也会把 QA trace 一并归到同一 smoke 日志。
+
+### 5.2 实体链接评测
 
 运行：
 
@@ -277,7 +386,7 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_eval.py --baselin
 - 该评测默认在“已知正确 label”条件下进行。
 - `hybrid` 会触发 embedding / vector 检索；`exact_match` 和 `fulltext` 不需要向量模型。
 
-### 5.2 KGQA 分阶段评测
+### 5.3 KGQA 分阶段评测
 
 运行：
 
@@ -291,6 +400,7 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py
 D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline template
 D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline full
 D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline ablation
+D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline all --enable-session-memory
 ```
 
 支持 baseline：
@@ -315,6 +425,8 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline ablation
 
 - `logs/eval/kgqa_<baseline>.jsonl`
 - `logs/eval/kgqa_summary.json`
+- `logs/eval/kgqa_<baseline>_memory_on.jsonl`
+- `logs/eval/kgqa_summary_memory_on.json`
 
 说明：
 
@@ -322,7 +434,7 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline ablation
 - `answer_keyword_hit_rate` 只在 `has_answer_keywords=True` 的样本上统计。
 - `template` baseline 现在可以独立运行，不再因为 eager embedding 初始化阻塞。
 
-### 5.3 评测环境前提
+### 5.4 评测环境前提
 
 KGQA 评测集必须和当前 Neo4j 中的事实一致。也就是说：
 
@@ -504,6 +616,7 @@ D:\Anaconda_envs\envs\graph\python.exe -m unittest discover -s tests -v
 - Agent runtime
 - KGQA trace 兼容层
 - 导购 NLU / retrieval / service
+- 导购评测脚本（主评测 / NLU 诊断 / smoke 工具函数）
 - 实体链接评测与 KGQA 评测指标计算
 - NER 错误分析相关逻辑
 

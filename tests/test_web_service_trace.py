@@ -70,7 +70,7 @@ class ChatServiceTraceTestCase(unittest.TestCase):
 
     def test_chat_keeps_string_return(self):
         service = self.build_service()
-        service.trace_chat = lambda question, history=None, align_entities=True: {
+        service.trace_chat = lambda question, history=None, align_entities=True, session=None, enable_session_memory=False: {
             "cypher_query": "MATCH (n) RETURN n",
             "entities_to_align": [],
             "aligned_entities": [],
@@ -83,7 +83,7 @@ class ChatServiceTraceTestCase(unittest.TestCase):
     def test_trace_chat_marks_execution_unsuccessful_when_query_not_executed(self):
         service = self.build_service()
         service.controller = object()
-        service.run_agent = lambda question, history=None, align_entities=True: type(
+        service.run_agent = lambda question, history=None, align_entities=True, session=None, enable_session_memory=False: type(
             "Result",
             (),
             {
@@ -123,6 +123,31 @@ class ChatServiceTraceTestCase(unittest.TestCase):
         )()
         trace = service.trace_chat("question")
         self.assertFalse(trace["execution_success"])
+
+    def test_build_session_commit_payload_contains_trace_and_memory_fields(self):
+        service = self.build_service()
+        result = type(
+            "Result",
+            (),
+            {
+                "answer": "answer",
+                "trace": type(
+                    "Trace",
+                    (),
+                    {
+                        "request_id": "trace-1",
+                        "metadata": {
+                            "confirmed_entity_cache_updates": [{"label": "Trademark", "raw_entity": "Apple"}],
+                            "session_failure_memory": {"trace_id": "trace-1", "primary_failure_tag": "query_empty"},
+                        },
+                    },
+                )(),
+            },
+        )()
+        payload = service.build_session_commit_payload(result, user_message="question")
+        self.assertEqual(payload["trace_id"], "trace-1")
+        self.assertEqual(payload["entity_cache_updates"][0]["label"], "Trademark")
+        self.assertEqual(payload["recent_failure"]["primary_failure_tag"], "query_empty")
 
 
 if __name__ == "__main__":

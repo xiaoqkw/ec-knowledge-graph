@@ -78,7 +78,7 @@ class StubPlanner:
             {"tool_name": "answer_tool", "arguments": {}},
         ]
 
-    def plan(self, question, *, history=None):
+    def plan(self, question, *, history=None, memory_hint=None):
         if self.should_raise:
             raise RuntimeError("planner unavailable")
         return {
@@ -223,7 +223,7 @@ class AgentControllerTestCase(unittest.TestCase):
         import agent.controller as controller_module
 
         class InvalidToolPlanner:
-            def plan(self, question, *, history=None):
+            def plan(self, question, *, history=None, memory_hint=None):
                 return {
                     "raw_content": "{}",
                     "repaired_content": "{}",
@@ -254,6 +254,40 @@ class AgentControllerTestCase(unittest.TestCase):
         self.assertEqual(result.trace.fallback_used, "default_tool_plan")
         self.assertEqual(result.trace.metadata["planner_invalid_tool_names"], ["unknown_tool"])
         self.assertEqual(result.trace.plan[0].tool_name, "entity_link_tool")
+
+    def test_session_cache_hit_skips_entity_link_tool_and_marks_cache_hit(self):
+        from web.memory import CachedAlignedEntity, QASession
+
+        import agent.controller as controller_module
+
+        runtime = StubRuntime()
+        controller = object.__new__(AgentController)
+        controller.runtime = runtime
+        controller.retriever = None
+        controller.schema_mapping_cache = controller_module.SchemaMappingCache()
+
+        session = QASession(session_id="session-1")
+        session.task_memory.entity_cache.upsert(
+            CachedAlignedEntity(
+                label="Trademark",
+                raw_entity="Apple",
+                aligned_entity="Apple Inc.",
+                param_name="param_0",
+                matched=True,
+            )
+        )
+        planner = StubPlanner()
+        original = controller_module.KGQAPlanner
+        controller_module.KGQAPlanner = lambda resources: planner
+        try:
+            result = AgentController.run_kgqa(controller, "question", session=session)
+        finally:
+            controller_module.KGQAPlanner = original
+
+        self.assertEqual([call[0] for call in runtime.calls], ["graph_query_tool", "answer_tool"])
+        self.assertTrue(result.trace.metadata["task_memory_skipped_entity_link"])
+        self.assertTrue(result.trace.tool_calls[0].cache_hit)
+        self.assertEqual(result.trace.metadata["task_memory_hit_keys"], ["Trademark::apple"])
 
 
 if __name__ == "__main__":

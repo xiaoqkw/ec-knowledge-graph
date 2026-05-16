@@ -23,6 +23,7 @@ class ToolCallRecord(BaseModel):
     input_payload: dict[str, Any] = Field(default_factory=dict)
     ok: bool
     output_payload: dict[str, Any] = Field(default_factory=dict)
+    cache_hit: bool = False
     failure_mode: str | None = None
     latency_ms: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)

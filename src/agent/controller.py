@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 
 from agent.runtime import AgentRuntime, dump_model, parse_model, repair_json
 from agent.tools import AnswerTool, EntityLinkTool, GraphQueryTool, PriceFloorTool, ProductCompareTool, ProductSearchTool
-from agent.types import AgentRunResult, EntityRef, ExecutionTrace, ToolPlan
+from agent.types import AgentRunResult, EntityRef, ExecutionTrace, ToolCallRecord, ToolPlan
 from configuration.config import ENTITY_INDEX_CONFIG
+from web.memory import CachedAlignedEntity, FailureMemory, QASession
 
 
 TEMPLATE_CYPHERS = {
@@ -46,10 +48,46 @@ def _answer_references_result(answer: str, query_result: list[dict]) -> bool:
     return False
 
 
+PLANNER_FAILURE_TAGS = {
+    "parse_failure",
+    "plan_schema_invalid",
+    "entity_missing",
+    "unsafe_query_blocked",
+    "query_timeout",
+    "query_empty",
+}
+
+
+class SchemaMappingCache:
+    def __init__(self):
+        self._cache: dict[str, str] = {}
+
+    def get(self, label: str, raw_entity: str) -> str | None:
+        return self._cache.get(AgentController._normalize_cache_key(label, raw_entity))
+
+    def set(self, label: str, raw_entity: str, canonical_name: str) -> None:
+        self._cache[AgentController._normalize_cache_key(label, raw_entity)] = canonical_name
+
+
+class EntityAlignmentCache:
+    def __init__(self, *, match_strategy: str = "exact"):
+        self.match_strategy = match_strategy
+        self._cache: dict[str, CachedAlignedEntity] = {}
+
+    def lookup(self, label: str, raw_entity: str) -> CachedAlignedEntity | None:
+        if self.match_strategy != "exact":
+            raise ValueError(f"Unsupported entity cache match strategy: {self.match_strategy}")
+        return self._cache.get(AgentController._normalize_cache_key(label, raw_entity))
+
+    def upsert(self, item: CachedAlignedEntity) -> None:
+        self._cache[AgentController._normalize_cache_key(item.label, item.raw_entity)] = item
+
+
 class AgentController:
     def __init__(self, runtime: AgentRuntime, *, retriever=None, enable_explain: bool = True):
         self.runtime = runtime
         self.retriever = retriever
+        self.schema_mapping_cache = SchemaMappingCache()
         self.runtime.register_tool(EntityLinkTool(runtime.resources))
         self.runtime.register_tool(GraphQueryTool(runtime.resources, enable_explain=enable_explain))
         self.runtime.register_tool(AnswerTool(runtime.resources))
@@ -65,12 +103,14 @@ class AgentController:
         session_id: str | None = None,
         history: list[dict[str, str]] | None = None,
         align_entities: bool = True,
+        session: QASession | None = None,
     ) -> AgentRunResult:
         trace = self.runtime.build_trace(session_id=session_id, user_query=question, intent="kgqa")
         planner = KGQAPlanner(self.runtime.resources)
+        memory_hint = self._build_memory_hint(session, trace)
 
         try:
-            plan_result = planner.plan(question, history=history)
+            plan_result = planner.plan(question, history=history, memory_hint=memory_hint)
         except Exception as exc:
             trace.metadata["planner_exception"] = str(exc)
             trace.fallback_used = "template_cypher"
@@ -106,28 +146,61 @@ class AgentController:
         entity_link_args = plan_by_name.get("entity_link_tool", {})
         should_align = align_entities and "entity_link_tool" in plan_by_name
         if raw_entities and should_align:
-            entity_record = self.runtime.invoke_tool(
-                trace,
-                "entity_link_tool",
-                {
-                    "entities": [dump_model(item) for item in raw_entities],
-                    "mode": self._resolve_entity_link_mode(entity_link_args, trace),
-                    "top_k": self._coerce_int_argument(
-                        entity_link_args.get("top_k"),
-                        default=3,
-                        minimum=1,
-                        maximum=10,
-                        trace=trace,
-                        argument_name="entity_link_tool.top_k",
-                    ),
-                },
-            )
-            if entity_record.ok:
-                aligned_entities = [parse_model(EntityRef, item) for item in entity_record.output_payload["aligned_entities"]]
-                candidates_by_param = entity_record.output_payload.get("candidates_by_param", {})
-                self._mark_entity_signal(trace, raw_entities, aligned_entities, candidates_by_param)
+            cache_lookup = self._resolve_entity_cache_hits(session, raw_entities)
+            aligned_entities = cache_lookup["aligned_entities"]
+            candidates_by_param = cache_lookup["candidates_by_param"]
+            missing_entities = cache_lookup["missing_entities"]
+            trace.metadata["task_memory_hit_count"] = cache_lookup["hit_count"]
+            trace.metadata["task_memory_miss_count"] = len(missing_entities)
+            trace.metadata["task_memory_hit_keys"] = cache_lookup["hit_keys"]
+            trace.metadata["task_memory_skipped_entity_link"] = bool(raw_entities and not missing_entities)
+
+            if missing_entities:
+                entity_record = self.runtime.invoke_tool(
+                    trace,
+                    "entity_link_tool",
+                    {
+                        "entities": [dump_model(item) for item in missing_entities],
+                        "mode": self._resolve_entity_link_mode(entity_link_args, trace),
+                        "top_k": self._coerce_int_argument(
+                            entity_link_args.get("top_k"),
+                            default=3,
+                            minimum=1,
+                            maximum=10,
+                            trace=trace,
+                            argument_name="entity_link_tool.top_k",
+                        ),
+                    },
+                )
+                if entity_record.ok:
+                    missing_aligned = [parse_model(EntityRef, item) for item in entity_record.output_payload["aligned_entities"]]
+                    missing_candidates = entity_record.output_payload.get("candidates_by_param", {})
+                    candidates_by_param.update(missing_candidates)
+                    aligned_entities = self._merge_aligned_entities(raw_entities, cache_lookup["cached_entities"], missing_aligned)
+                    self._mark_entity_signal(trace, raw_entities, aligned_entities, candidates_by_param)
+                else:
+                    self._set_failure(trace, "entity_missing", "entity_link")
             else:
-                self._set_failure(trace, "entity_missing", "entity_link")
+                trace.tool_calls.append(
+                    ToolCallRecord(
+                        tool_name="entity_link_tool",
+                        input_payload={"entities": [dump_model(item) for item in raw_entities]},
+                        ok=True,
+                        output_payload={
+                            "aligned_entities": [dump_model(item) for item in aligned_entities],
+                            "candidates_by_param": candidates_by_param,
+                            "used_mode": "session_cache",
+                        },
+                        cache_hit=True,
+                        latency_ms=0,
+                    )
+                )
+                self._mark_entity_signal(trace, raw_entities, aligned_entities, candidates_by_param)
+        else:
+            trace.metadata["task_memory_hit_count"] = 0
+            trace.metadata["task_memory_miss_count"] = 0
+            trace.metadata["task_memory_hit_keys"] = []
+            trace.metadata["task_memory_skipped_entity_link"] = False
 
         executed_params = {
             item.param_name: item.entity
@@ -193,6 +266,17 @@ class AgentController:
         trace.metadata["aligned_entities"] = [dump_model(item) for item in aligned_entities]
         trace.metadata["executed_params"] = executed_params
         trace.metadata["query_result"] = rows
+        trace.metadata["confirmed_entity_cache_updates"] = self._build_confirmed_entity_cache_updates(
+            session=session,
+            raw_entities=raw_entities,
+            aligned_entities=aligned_entities,
+            executed_params=executed_params,
+            cypher_query=cypher_query,
+            rows=rows,
+            trace=trace,
+            entity_link_mode=entity_link_args.get("mode"),
+        )
+        trace.metadata["session_failure_memory"] = self._build_session_failure_memory(trace, cypher_query, executed_params)
         return self.runtime.finalize_trace(trace, answer=answer)
 
     @staticmethod
@@ -390,12 +474,192 @@ class AgentController:
             return True, "answer_not_grounded"
         return False, None
 
+    @staticmethod
+    def _normalize_cache_key(label: str, raw_entity: str) -> str:
+        return f"{label}::{' '.join(str(raw_entity or '').strip().lower().split())}"
+
+    def _build_memory_hint(self, session: QASession | None, trace: ExecutionTrace) -> str | None:
+        if session is None:
+            trace.metadata["task_memory_recent_failures_used"] = 0
+            return None
+
+        entity_lines = []
+        for item in list(session.task_memory.entity_cache.values())[-3:]:
+            entity_lines.append(f"{item.label}:{item.raw_entity}->{item.aligned_entity}")
+
+        failures = [
+            item
+            for item in session.task_memory.recent_failures
+            if item.primary_failure_tag in PLANNER_FAILURE_TAGS
+        ][-2:]
+        trace.metadata["task_memory_recent_failures_used"] = len(failures)
+        failure_lines = [
+            f"{item.primary_failure_tag}@{item.failure_stage or 'unknown'}:{item.cypher_excerpt}"
+            for item in failures
+        ]
+        parts = []
+        if entity_lines:
+            parts.append("已确认实体对齐:\n" + "\n".join(entity_lines))
+        if failure_lines:
+            parts.append("近期失败摘要:\n" + "\n".join(failure_lines))
+        return "\n\n".join(parts) if parts else None
+
+    def _resolve_entity_cache_hits(self, session: QASession | None, raw_entities: list[EntityRef]) -> dict:
+        if session is None:
+            return {
+                "aligned_entities": raw_entities,
+                "cached_entities": {},
+                "candidates_by_param": {},
+                "missing_entities": raw_entities,
+                "hit_count": 0,
+                "hit_keys": [],
+            }
+
+        cached_entities: dict[str, EntityRef] = {}
+        candidates_by_param: dict[str, list[dict]] = {}
+        missing_entities: list[EntityRef] = []
+        hit_keys: list[str] = []
+
+        for item in raw_entities:
+            key = self._normalize_cache_key(item.label, item.entity)
+            cached = session.task_memory.entity_cache.lookup(item.label, item.entity)
+            if cached is not None:
+                cached_entities[item.param_name] = (
+                    item.model_copy(
+                        update={
+                            "entity": cached.aligned_entity,
+                            "matched": cached.matched,
+                            "score_gap": cached.score_gap,
+                        }
+                    )
+                    if hasattr(item, "model_copy")
+                    else item.copy(
+                        update={
+                            "entity": cached.aligned_entity,
+                            "matched": cached.matched,
+                            "score_gap": cached.score_gap,
+                        }
+                    )
+                )
+                candidates_by_param[item.param_name] = [{"name": cached.aligned_entity, "score": None}]
+                hit_keys.append(key)
+                continue
+            mapped = self.schema_mapping_cache.get(item.label, item.entity)
+            if mapped is not None:
+                cached_entities[item.param_name] = (
+                    item.model_copy(
+                        update={
+                            "entity": mapped,
+                            "matched": True,
+                        }
+                    )
+                    if hasattr(item, "model_copy")
+                    else item.copy(
+                        update={
+                            "entity": mapped,
+                            "matched": True,
+                        }
+                    )
+                )
+                candidates_by_param[item.param_name] = [{"name": mapped, "score": None}]
+                hit_keys.append(key)
+                continue
+            missing_entities.append(item)
+
+        aligned_entities = []
+        for item in raw_entities:
+            aligned_entities.append(cached_entities.get(item.param_name, item))
+        return {
+            "aligned_entities": aligned_entities,
+            "cached_entities": cached_entities,
+            "candidates_by_param": candidates_by_param,
+            "missing_entities": missing_entities,
+            "hit_count": len(hit_keys),
+            "hit_keys": hit_keys,
+        }
+
+    @staticmethod
+    def _merge_aligned_entities(
+        raw_entities: list[EntityRef],
+        cached_entities: dict[str, EntityRef],
+        missing_aligned: list[EntityRef],
+    ) -> list[EntityRef]:
+        aligned_by_param = {item.param_name: item for item in missing_aligned}
+        merged = []
+        for raw_item in raw_entities:
+            merged.append(cached_entities.get(raw_item.param_name, aligned_by_param.get(raw_item.param_name, raw_item)))
+        return merged
+
+    def _build_confirmed_entity_cache_updates(
+        self,
+        *,
+        session: QASession | None,
+        raw_entities: list[EntityRef],
+        aligned_entities: list[EntityRef],
+        executed_params: dict[str, str],
+        cypher_query: str,
+        rows: list[dict],
+        trace: ExecutionTrace,
+        entity_link_mode,
+    ) -> list[dict]:
+        if session is None or not rows or len(raw_entities) != 1:
+            return []
+        if "entity_misaligned" in trace.quality_signals:
+            return []
+
+        raw_item = raw_entities[0]
+        aligned_item = aligned_entities[0]
+        if not aligned_item.matched:
+            return []
+        if raw_item.param_name not in executed_params:
+            return []
+        if f"${raw_item.param_name}" not in cypher_query:
+            return []
+
+        update = CachedAlignedEntity(
+            label=raw_item.label,
+            raw_entity=raw_item.entity,
+            aligned_entity=aligned_item.entity,
+            param_name=raw_item.param_name,
+            matched=aligned_item.matched,
+            score_gap=aligned_item.score_gap,
+            source_mode=str(entity_link_mode or "hybrid"),
+            updated_at=time.time(),
+        )
+        if raw_item.label in {"Trademark", "Category3"}:
+            self.schema_mapping_cache.set(raw_item.label, raw_item.entity, aligned_item.entity)
+        return [
+            dump_model(
+                update
+            )
+        ]
+
+    @staticmethod
+    def _build_session_failure_memory(trace: ExecutionTrace, cypher_query: str, executed_params: dict) -> dict | None:
+        primary = next((tag for tag in trace.failure_tags if tag in PLANNER_FAILURE_TAGS), None)
+        if primary is None:
+            return None
+        limited_params = {}
+        for index, key in enumerate(executed_params):
+            if index >= 3:
+                break
+            limited_params[key] = executed_params[key]
+        return dump_model(
+            FailureMemory(
+                trace_id=trace.request_id,
+                failure_stage=trace.failure_stage,
+                primary_failure_tag=primary,
+                cypher_excerpt=str(cypher_query or "")[:200],
+                executed_params_excerpt=limited_params,
+            )
+        )
+
 
 class KGQAPlanner:
     def __init__(self, resources):
         self.resources = resources
 
-    def plan(self, question: str, *, history: list[dict[str, str]] | None = None) -> dict:
+    def plan(self, question: str, *, history: list[dict[str, str]] | None = None, memory_hint: str | None = None) -> dict:
         llm = self.resources.get_llm()
         if llm is None:
             raise RuntimeError("LLM is not enabled for the current runtime.")
@@ -407,6 +671,9 @@ class KGQAPlanner:
 
 最近对话历史：
 {history_text}
+
+任务记忆提示（可能为空）：
+{memory_hint}
 
 用户问题：{question}
 
@@ -433,6 +700,7 @@ class KGQAPlanner:
         rendered = prompt.format(
             question=question,
             history_text=self._format_history(history),
+            memory_hint=memory_hint or "无",
             schema_info=self.resources.get_schema(),
         )
         result = llm.invoke(rendered)

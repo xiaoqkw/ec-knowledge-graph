@@ -1,0 +1,10 @@
+{"input":"想买手机预算4k主要拍照","expected_intent":"recommend","expected_slots":{"budget_max":4000,"use_case":"拍照"}}
+{"input":"预算5000以内，想打游戏","expected_intent":"recommend","expected_slots":{"budget_max":5000,"use_case":"游戏"}}
+{"input":"5000左右，续航好一点","expected_intent":"recommend","expected_slots":{"budget_max":5000,"use_case":"续航"}}
+{"input":"苹果 256G","expected_intent":"inform","expected_slots":{"brand":"苹果","storage":"256G"}}
+{"input":"Apple 的 256G 怎么样","expected_intent":"inform","expected_slots":{"brand":"苹果","storage":"256G"}}
+{"input":"华为手机预算6000，主要续航","expected_intent":"recommend","expected_slots":{"brand":"华为","budget_max":6000,"use_case":"续航"}}
+{"input":"把前两个比一下","expected_intent":"compare","expected_slots":{},"state_has_context":true}
+{"input":"重新开始","expected_intent":"reset","expected_slots":{},"state_has_context":true}
+{"input":"苹果都有哪些产品","expected_intent":"fallback_qa","expected_slots":{}}
+{"input":"预算3500，想要性价比","expected_intent":"recommend","expected_slots":{"budget_max":3500,"use_case":"性价比"}}

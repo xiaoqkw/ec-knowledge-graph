@@ -9,6 +9,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from configuration.config import LOG_DIR
+from web.memory import CachedAlignedEntity, FailureMemory, InMemoryQASessionStore
 from web.service import ChatService
 
 
@@ -112,11 +113,81 @@ def run_template_baseline(service: ChatService, sample: dict) -> dict:
     }
 
 
-def run_llm_baseline(service: ChatService, sample: dict, baseline: str) -> dict:
-    trace = service.trace_chat(
-        sample["question"],
-        align_entities=(baseline == "full"),
+def _commit_eval_session_turn(store: InMemoryQASessionStore, session, service: ChatService, result, *, user_message: str) -> None:
+    commit_payload = service.build_session_commit_payload(result, user_message=user_message)
+    store.commit_turn(
+        session,
+        user_message=commit_payload["user_message"],
+        assistant_message=commit_payload["assistant_message"],
+        trace_id=commit_payload["trace_id"],
+        entity_cache_updates=[
+            CachedAlignedEntity(**item) if isinstance(item, dict) else item
+            for item in commit_payload["entity_cache_updates"]
+        ],
+        recent_failure=FailureMemory(**commit_payload["recent_failure"])
+        if isinstance(commit_payload["recent_failure"], dict)
+        else commit_payload["recent_failure"],
     )
+
+
+def _trace_result_to_record(question: str, result) -> dict:
+    trace = result.trace
+    metadata = trace.metadata
+    execution_error = None
+    for record in trace.tool_calls:
+        if not record.ok and record.metadata.get("error"):
+            execution_error = record.metadata["error"]
+            break
+    return {
+        "question": question,
+        "raw_cypher_output": metadata.get("planner_raw_output", ""),
+        "repaired_cypher_output": metadata.get("planner_repaired_output", ""),
+        "parse_success_raw": bool(metadata.get("planner_parse_success_raw", False)),
+        "parse_success_repaired": bool(metadata.get("planner_parse_success_repaired", False)),
+        "cypher_query_present": bool(metadata.get("cypher_query")),
+        "parsed_payload": metadata.get("parsed_payload"),
+        "cypher_query": metadata.get("cypher_query", ""),
+        "entities_to_align": metadata.get("entities_to_align", []),
+        "aligned_entities": metadata.get("aligned_entities", []),
+        "executed_params": metadata.get("executed_params", {}),
+        "unsafe_cypher": "unsafe_query_blocked" in trace.failure_tags,
+        "execution_success": any(call.tool_name == "graph_query_tool" and call.ok for call in trace.tool_calls),
+        "execution_error": execution_error,
+        "query_result": metadata.get("query_result", []),
+        "non_empty_result": bool(metadata.get("query_result", [])),
+        "answer": result.answer,
+        "trace_id": trace.request_id,
+    }
+
+
+def run_llm_baseline(
+    service: ChatService,
+    sample: dict,
+    baseline: str,
+    *,
+    enable_session_memory: bool,
+    session_store: InMemoryQASessionStore | None = None,
+    session=None,
+) -> dict:
+    if enable_session_memory:
+        if session_store is None or session is None:
+            raise ValueError("Session memory baseline requires both session_store and session.")
+        result = service.run_agent(
+            sample["question"],
+            history=session.history,
+            session_id=session.session_id,
+            align_entities=(baseline == "full"),
+            session=session,
+            enable_session_memory=True,
+        )
+        _commit_eval_session_turn(session_store, session, service, result, user_message=sample["question"])
+        trace = _trace_result_to_record(sample["question"], result)
+    else:
+        trace = service.trace_chat(
+            sample["question"],
+            align_entities=(baseline == "full"),
+            enable_session_memory=False,
+        )
     any_hit, all_hit = coverage_flags(sample.get("required_entities", []), trace["executed_params"])
     return {
         "question": sample["question"],
@@ -208,6 +279,7 @@ def main() -> None:
         choices=["template", "full", "ablation", "all"],
         default="all",
     )
+    parser.add_argument("--enable-session-memory", action="store_true")
     args = parser.parse_args()
 
     baselines = ["template", "full", "ablation"] if args.baseline == "all" else [args.baseline]
@@ -217,16 +289,31 @@ def main() -> None:
     try:
         results = {}
         for baseline in baselines:
+            session_store = InMemoryQASessionStore() if args.enable_session_memory else None
+            session = (
+                session_store.get_or_create(f"kgqa_eval_session_{baseline}")
+                if session_store is not None
+                else None
+            )
             records = []
             for sample in dataset:
                 if baseline == "template":
                     record = run_template_baseline(service, sample)
                 else:
-                    record = run_llm_baseline(service, sample, baseline)
+                    record = run_llm_baseline(
+                        service,
+                        sample,
+                        baseline,
+                        enable_session_memory=args.enable_session_memory,
+                        session_store=session_store,
+                        session=session,
+                    )
                 records.append(record)
-            write_logs(LOG_DIR / "eval" / f"kgqa_{baseline}.jsonl", records)
+            memory_suffix = "memory_on" if args.enable_session_memory else "memory_off"
+            write_logs(LOG_DIR / "eval" / f"kgqa_{baseline}_{memory_suffix}.jsonl", records)
             results[baseline] = compute_metrics(records)
-        write_summary(LOG_DIR / "eval" / "kgqa_summary.json", results)
+        memory_suffix = "memory_on" if args.enable_session_memory else "memory_off"
+        write_summary(LOG_DIR / "eval" / f"kgqa_summary_{memory_suffix}.json", results)
         print_report(results)
     finally:
         service.close()

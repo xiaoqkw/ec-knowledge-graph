@@ -104,7 +104,10 @@ def main() -> None:
         default="all",
     )
     parser.add_argument("--top-k", type=int, default=3)
+    parser.add_argument("--enable-session-memory", action="store_true")
     args = parser.parse_args()
+    if args.enable_session_memory:
+        raise ValueError("Entity linking eval does not support session memory yet; use --enable-session-memory only for KGQA eval.")
 
     baselines = ["exact_match", "fulltext", "hybrid"] if args.baseline == "all" else [args.baseline]
     dataset = load_dataset(Path(args.dataset))
@@ -113,9 +116,11 @@ def main() -> None:
         results = {}
         for baseline in baselines:
             metrics, records = evaluate_baseline(service, dataset, baseline, args.top_k)
-            write_logs(LOG_DIR / "eval" / f"entity_linking_{baseline}.jsonl", records)
+            memory_suffix = "memory_on" if args.enable_session_memory else "memory_off"
+            write_logs(LOG_DIR / "eval" / f"entity_linking_{baseline}_{memory_suffix}.jsonl", records)
             results[baseline] = {"metrics": metrics, "records": records}
-        write_summary(LOG_DIR / "eval" / "entity_linking_summary.json", results)
+        memory_suffix = "memory_on" if args.enable_session_memory else "memory_off"
+        write_summary(LOG_DIR / "eval" / f"entity_linking_summary_{memory_suffix}.json", results)
         print_report(results)
     finally:
         service.close()

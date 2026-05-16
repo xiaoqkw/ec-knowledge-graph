@@ -3,6 +3,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 CURRENT_DIR = Path(__file__).resolve()
 SRC_DIR = CURRENT_DIR.parents[1]
@@ -14,6 +15,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 from agent import AgentController, AgentRuntime, AgentResources
 from agent.runtime import dump_model
 from configuration.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL, EMBEDDING_MODEL_NAME, ENTITY_INDEX_CONFIG, NEO4J_CONFIG
+from web.memory import QASession
 
 try:
     from json_repair import repair_json
@@ -45,6 +47,7 @@ class ChatService:
     """Knowledge graph QA service compatibility layer."""
 
     def __init__(self, *, llm_enabled: bool = True, controller: AgentController | None = None):
+        self._owns_runtime = controller is None
         if controller is None:
             runtime = AgentRuntime(resources=AgentResources(llm_enabled=llm_enabled))
             controller = AgentController(runtime, enable_explain=True)
@@ -59,10 +62,24 @@ class ChatService:
         self.str_parser = self.resources.str_parser
 
     def close(self) -> None:
-        self.runtime.close()
+        if self._owns_runtime:
+            self.runtime.close()
 
-    def chat(self, question: str, history: list[dict[str, str]] | None = None) -> str:
-        return self.trace_chat(question, history=history, align_entities=True)["answer"]
+    def chat(
+        self,
+        question: str,
+        history: list[dict[str, str]] | None = None,
+        *,
+        session: QASession | None = None,
+        enable_session_memory: bool = False,
+    ) -> str:
+        return self.trace_chat(
+            question,
+            history=history,
+            align_entities=True,
+            session=session,
+            enable_session_memory=enable_session_memory,
+        )["answer"]
 
     def run_agent(
         self,
@@ -71,12 +88,15 @@ class ChatService:
         history: list[dict[str, str]] | None = None,
         session_id: str | None = None,
         align_entities: bool = True,
+        session: QASession | None = None,
+        enable_session_memory: bool = False,
     ):
         return self.controller.run_kgqa(
             question,
             session_id=session_id,
             history=history,
             align_entities=align_entities,
+            session=session if enable_session_memory else None,
         )
 
     def trace_chat(
@@ -85,11 +105,19 @@ class ChatService:
         history: list[dict[str, str]] | None = None,
         *,
         align_entities: bool = True,
+        session: QASession | None = None,
+        enable_session_memory: bool = False,
     ) -> dict:
         if not hasattr(self, "controller") or self.controller is None:
             return self._trace_chat_legacy(question, history=history, align_entities=align_entities)
 
-        result = self.run_agent(question, history=history, align_entities=align_entities)
+        result = self.run_agent(
+            question,
+            history=history,
+            align_entities=align_entities,
+            session=session,
+            enable_session_memory=enable_session_memory,
+        )
         trace = result.trace
         metadata = trace.metadata
         execution_error = None
@@ -116,6 +144,21 @@ class ChatService:
             "non_empty_result": bool(metadata.get("query_result", [])),
             "answer": result.answer,
             "trace_id": trace.request_id,
+        }
+
+    @staticmethod
+    def build_session_commit_payload(result, *, user_message: str) -> dict[str, Any]:
+        trace = result.trace
+        metadata = trace.metadata
+        entity_updates = []
+        for item in metadata.get("confirmed_entity_cache_updates", []):
+            entity_updates.append(item)
+        return {
+            "user_message": user_message,
+            "assistant_message": result.answer,
+            "trace_id": trace.request_id,
+            "entity_cache_updates": entity_updates,
+            "recent_failure": metadata.get("session_failure_memory"),
         }
 
     def _trace_chat_legacy(

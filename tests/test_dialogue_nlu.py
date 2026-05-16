@@ -100,6 +100,19 @@ class DialogueNLUTestCase(unittest.TestCase):
         )
         self.assertEqual(result.intent, "fallback_qa")
 
+    def test_fallback_qa_is_confident_without_llm_override(self):
+        class GuardedNLU(DialogueNLU):
+            def _parse_with_llm(self, message, brand_vocabulary):
+                raise AssertionError("LLM fallback should not be called for confident fallback_qa")
+
+        nlu = GuardedNLU(llm_enabled=False)
+        result = nlu.parse(
+            "苹果都有哪些产品",
+            brand_vocabulary=self.brands,
+            state_has_context=False,
+        )
+        self.assertEqual(result.intent, "fallback_qa")
+
 
 if __name__ == "__main__":
     unittest.main()

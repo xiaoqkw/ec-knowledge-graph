@@ -1,0 +1,5 @@
+{"case_id":"smoke_001","turns":["想买手机，预算5000，主要拍照"],"expected_action":"recommend","min_recommendations":1}
+{"case_id":"smoke_002","turns":["苹果拍照手机，预算4000","帮我筛一下吧"],"expected_action":"recommend","min_recommendations":1}
+{"case_id":"smoke_003","turns":["苹果 512G，预算8000，拍照"],"expected_action":"recommend","min_recommendations":1}
+{"case_id":"smoke_004","turns":["预算8000，拍照","把前两个比一下"],"expected_action":"compare","min_recommendations":0}
+{"case_id":"smoke_005","turns":["苹果都有哪些产品"],"expected_action":"fallback_qa","min_recommendations":0}

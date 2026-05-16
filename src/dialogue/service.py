@@ -53,6 +53,8 @@ class DialogueService:
     ):
         self.store = store or InMemorySessionStore()
         self.nlu = nlu or DialogueNLU()
+        self._owns_retriever = retriever is None
+        self._owns_runtime = agent_controller is None
         if retriever is None:
             from dialogue.retrieval import PhoneGuideRetriever
 
@@ -67,8 +69,10 @@ class DialogueService:
             self.llm = ChatDeepSeek(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY)
 
     def close(self) -> None:
-        self.agent_controller.runtime.close()
-        self.retriever.close()
+        if self._owns_runtime:
+            self.agent_controller.runtime.close()
+        if self._owns_retriever:
+            self.retriever.close()
 
     def chat(
         self,
