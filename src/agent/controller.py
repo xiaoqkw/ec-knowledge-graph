@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 import time
+from dataclasses import dataclass
+from typing import Any
 
 from agent.runtime import AgentRuntime, dump_model, parse_model, repair_json
 from agent.tools import AnswerTool, EntityLinkTool, GraphQueryTool, PriceFloorTool, ProductCompareTool, ProductSearchTool
-from agent.types import AgentRunResult, EntityRef, ExecutionTrace, ToolCallRecord, ToolPlan
+from agent.types import AgentRunResult, EntityRef, EvidenceItem, ExecutionTrace, ToolCallRecord, ToolPlan
 from configuration.config import ENTITY_INDEX_CONFIG
 from web.memory import CachedAlignedEntity, FailureMemory, QASession
 
@@ -32,6 +35,31 @@ TEMPLATE_CYPHERS = {
     """,
 }
 SUPPORTED_KGQA_TOOLS = {"entity_link_tool", "graph_query_tool", "answer_tool"}
+SCALAR_EVIDENCE_TYPES = (str, int, float, bool)
+TEXT_EVIDENCE_LIMIT = 2
+GRAPH_EVIDENCE_LIMIT = 3
+TEXT_EVIDENCE_TIMEOUT_SECONDS = 0.5
+RETURN_ALIAS_PATTERN = re.compile(
+    r"(?i)^\s*(?:distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$"
+)
+MATCH_LABEL_PATTERN = re.compile(r"\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
+CAMEL_TO_SNAKE_PATTERN_1 = re.compile(r"(.)([A-Z][a-z]+)")
+CAMEL_TO_SNAKE_PATTERN_2 = re.compile(r"([a-z0-9])([A-Z])")
+ENTITY_ID_LOOKUP_PATTERN = re.compile(
+    r"(?i)\b(?:id|elementid)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*=\s*\$([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+@dataclass
+class GraphEvidenceCandidate:
+    row_index: int
+    field_name: str
+    value: str
+    node_label: str | None
+    entity_id: str | None
+    resolved_var: str | None
+    resolved_property: str | None
+    lookup_id: Any = None
 
 
 def _append_unique(items: list[str], value: str) -> None:
@@ -132,12 +160,22 @@ class AgentController:
         payload = plan_result["payload"] if isinstance(plan_result["payload"], dict) else {}
         cypher_query = str(payload.get("cypher_query", "")).strip()
         raw_entities = [parse_model(EntityRef, item) for item in payload.get("entities_to_align", [])]
+        if self._uses_entity_id_lookup(cypher_query, raw_entities):
+            trace.metadata["planner_entity_id_lookup_rejected"] = True
+            self._set_failure(trace, "plan_schema_invalid", "plan")
+            trace.fallback_used = "template_cypher"
+            fallback_plan = self._template_plan(question)
+            payload = fallback_plan["payload"] if isinstance(fallback_plan["payload"], dict) else {}
+            cypher_query = str(payload.get("cypher_query", "")).strip()
+            raw_entities = [parse_model(EntityRef, item) for item in payload.get("entities_to_align", [])]
         planner_plan = [parse_model(ToolPlan, item) for item in payload.get("tool_plan", [])]
         trace.plan = planner_plan
         if not plan_result["plan_valid"] or not trace.plan:
             trace.plan = self._default_tool_plan(align_entities=align_entities)
             if trace.fallback_used is None:
                 trace.fallback_used = "default_tool_plan"
+        elif trace.fallback_used == "template_cypher":
+            trace.plan = planner_plan
 
         plan_by_name = {item.tool_name: item.arguments for item in trace.plan}
 
@@ -244,6 +282,8 @@ class AgentController:
             self._set_failure(trace, "plan_schema_invalid", "plan")
 
         if "answer_tool" in plan_by_name:
+            evidence = self._build_evidence(cypher_query=cypher_query, rows=rows)
+            trace.evidence = evidence
             answer_record = self.runtime.invoke_tool(
                 trace,
                 "answer_tool",
@@ -251,6 +291,7 @@ class AgentController:
                     "question": question,
                     "query_result": rows,
                     "history": history or [],
+                    "evidence": [dump_model(item) for item in evidence],
                 },
             )
             if answer_record.ok:
@@ -259,6 +300,7 @@ class AgentController:
             else:
                 answer = "当前图谱中没有找到相关信息。"
         else:
+            trace.evidence = self._build_evidence(cypher_query=cypher_query, rows=rows)
             answer = json.dumps(rows, ensure_ascii=False) if rows else "当前图谱中没有找到相关信息。"
 
         trace.metadata["cypher_query"] = cypher_query
@@ -654,6 +696,385 @@ class AgentController:
             )
         )
 
+    def _build_evidence(self, *, cypher_query: str, rows: list[dict]) -> list[EvidenceItem]:
+        if not rows:
+            return []
+
+        graph_candidates = self._build_graph_evidence_candidates(cypher_query=cypher_query, rows=rows)
+        graph_evidence = [
+            EvidenceItem(
+                kind="graph",
+                source="graph",
+                node_label=item.node_label,
+                field_name=item.field_name,
+                value=item.value,
+                entity_id=item.entity_id,
+                text_excerpt=None,
+            )
+            for item in graph_candidates
+        ]
+        text_evidence = self._build_text_evidence(graph_candidates)
+        return graph_evidence + text_evidence
+
+    def _build_graph_evidence_candidates(self, *, cypher_query: str, rows: list[dict]) -> list[GraphEvidenceCandidate]:
+        alias_map = self._parse_return_alias_map(cypher_query)
+        variable_labels = self._parse_variable_labels(cypher_query)
+        candidates: list[GraphEvidenceCandidate] = []
+        seen = set()
+
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+
+            row_id_fields = {
+                str(key): value
+                for key, value in row.items()
+                if self._is_id_field(key) and self._is_scalar_value(value)
+            }
+
+            for key, raw_value in row.items():
+                raw_field_name = str(key)
+                if self._is_id_field(raw_field_name):
+                    continue
+                if not self._is_scalar_value(raw_value):
+                    continue
+                value = str(raw_value)
+                if not value.strip():
+                    continue
+
+                resolved = alias_map.get(raw_field_name)
+                node_label = None
+                resolved_var = None
+                resolved_property = None
+                if resolved is not None:
+                    resolved_var = resolved["var"]
+                    resolved_property = resolved["prop"]
+                    node_label = variable_labels.get(resolved_var)
+                field_name = self._normalize_field_name(raw_field_name)
+                entity_id, lookup_id = self._resolve_entity_identity(
+                    row=row,
+                    raw_field_name=raw_field_name,
+                    node_label=node_label,
+                    resolved_property=resolved_property,
+                    row_id_fields=row_id_fields,
+                )
+                candidate = GraphEvidenceCandidate(
+                    row_index=row_index,
+                    field_name=field_name,
+                    value=value,
+                    node_label=node_label,
+                    entity_id=entity_id,
+                    resolved_var=resolved_var,
+                    resolved_property=resolved_property,
+                    lookup_id=lookup_id,
+                )
+                dedupe_key = (candidate.field_name, candidate.value)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                candidates.append(candidate)
+                if len(candidates) >= GRAPH_EVIDENCE_LIMIT:
+                    return candidates
+        return candidates
+
+    def _build_text_evidence(self, graph_candidates: list[GraphEvidenceCandidate]) -> list[EvidenceItem]:
+        supplement_candidates = []
+        seen_entities = set()
+        for item in graph_candidates:
+            if item.node_label not in {"SPU", "SKU"}:
+                continue
+            if item.lookup_id is None and item.resolved_property != "name":
+                continue
+            entity_key = item.entity_id or f"{item.node_label}:{item.value}"
+            if entity_key in seen_entities:
+                continue
+            if self._has_graph_description_for_same_var(item, graph_candidates):
+                continue
+            seen_entities.add(entity_key)
+            supplement_candidates.append(item)
+            if len(supplement_candidates) >= TEXT_EVIDENCE_LIMIT:
+                break
+
+        if not supplement_candidates:
+            return []
+
+        try:
+            descriptions = self._lookup_spu_descriptions(supplement_candidates)
+        except Exception:
+            return []
+
+        evidence = []
+        seen_text_keys = set()
+        for item in supplement_candidates:
+            row = descriptions.get(item.entity_id or f"{item.node_label}:{item.value}")
+            if row is None:
+                continue
+            entity_id = row.get("entity_id")
+            dedupe_key = entity_id or f"{item.node_label}:{item.value}"
+            if dedupe_key in seen_text_keys:
+                continue
+            seen_text_keys.add(dedupe_key)
+            evidence.append(
+                EvidenceItem(
+                    kind="text",
+                    source="spu_description",
+                    node_label="SPU",
+                    field_name="description",
+                    value=str(row.get("spu_name", "")),
+                    entity_id=str(entity_id) if entity_id is not None else None,
+                    text_excerpt=str(row.get("description", ""))[:160] or None,
+                )
+            )
+        return evidence
+
+    def _lookup_spu_descriptions(self, candidates: list[GraphEvidenceCandidate]) -> dict[str, dict]:
+        writer = self.runtime.resources.get_writer()
+        results: dict[str, dict] = {}
+
+        spu_ids = [item.lookup_id for item in candidates if item.node_label == "SPU" and item.lookup_id is not None]
+        spu_names = [item.value for item in candidates if item.node_label == "SPU" and item.lookup_id is None]
+        sku_ids = [item.lookup_id for item in candidates if item.node_label == "SKU" and item.lookup_id is not None]
+        sku_names = [item.value for item in candidates if item.node_label == "SKU" and item.lookup_id is None]
+
+        if spu_ids:
+            rows = writer.query(
+                """
+                MATCH (spu:SPU)
+                WHERE spu.id IN $ids
+                  AND coalesce(spu.description, '') <> ''
+                RETURN spu.id AS spu_id, spu.name AS spu_name, spu.description AS description
+                """,
+                timeout=TEXT_EVIDENCE_TIMEOUT_SECONDS,
+                ids=spu_ids,
+            )
+            for row in rows:
+                key = str(row.get("spu_id"))
+                results[key] = {
+                    "entity_id": key,
+                    "spu_name": str(row.get("spu_name", "")),
+                    "description": str(row.get("description", "")),
+                }
+        if spu_names:
+            rows = writer.query(
+                """
+                MATCH (spu:SPU)
+                WHERE spu.name IN $names
+                  AND coalesce(spu.description, '') <> ''
+                RETURN spu.id AS spu_id, spu.name AS spu_name, spu.description AS description
+                """,
+                timeout=TEXT_EVIDENCE_TIMEOUT_SECONDS,
+                names=spu_names,
+            )
+            grouped = self._group_rows_by_name(rows, "spu_name")
+            for name, items in grouped.items():
+                if len(items) != 1:
+                    continue
+                row = items[0]
+                results[f"SPU:{name}"] = {
+                    "entity_id": str(row.get("spu_id")) if row.get("spu_id") is not None else None,
+                    "spu_name": str(row.get("spu_name", "")),
+                    "description": str(row.get("description", "")),
+                }
+        if sku_ids:
+            rows = writer.query(
+                """
+                MATCH (sku:SKU)-[:Belong]->(spu:SPU)
+                WHERE sku.id IN $ids
+                  AND coalesce(spu.description, '') <> ''
+                RETURN sku.id AS sku_id, spu.id AS spu_id, spu.name AS spu_name, spu.description AS description
+                """,
+                timeout=TEXT_EVIDENCE_TIMEOUT_SECONDS,
+                ids=sku_ids,
+            )
+            for row in rows:
+                key = str(row.get("sku_id"))
+                results[key] = {
+                    "entity_id": str(row.get("spu_id")) if row.get("spu_id") is not None else None,
+                    "spu_name": str(row.get("spu_name", "")),
+                    "description": str(row.get("description", "")),
+                }
+        if sku_names:
+            rows = writer.query(
+                """
+                MATCH (sku:SKU)-[:Belong]->(spu:SPU)
+                WHERE sku.name IN $names
+                  AND coalesce(spu.description, '') <> ''
+                RETURN sku.name AS sku_name, spu.id AS spu_id, spu.name AS spu_name, spu.description AS description
+                """,
+                timeout=TEXT_EVIDENCE_TIMEOUT_SECONDS,
+                names=sku_names,
+            )
+            grouped = self._group_rows_by_name(rows, "sku_name")
+            for name, items in grouped.items():
+                if len(items) != 1:
+                    continue
+                row = items[0]
+                results[f"SKU:{name}"] = {
+                    "entity_id": str(row.get("spu_id")) if row.get("spu_id") is not None else None,
+                    "spu_name": str(row.get("spu_name", "")),
+                    "description": str(row.get("description", "")),
+                }
+        return results
+
+    @staticmethod
+    def _group_rows_by_name(rows: list[dict], field_name: str) -> dict[str, list[dict]]:
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            key = str(row.get(field_name, ""))
+            if not key:
+                continue
+            grouped.setdefault(key, []).append(row)
+        return grouped
+
+    @staticmethod
+    def _has_graph_description_for_same_var(
+        candidate: GraphEvidenceCandidate,
+        graph_candidates: list[GraphEvidenceCandidate],
+    ) -> bool:
+        if not candidate.resolved_var:
+            return False
+        for item in graph_candidates:
+            if item.row_index != candidate.row_index:
+                continue
+            if item.resolved_var != candidate.resolved_var:
+                continue
+            if item.resolved_property != "description":
+                continue
+            return True
+        return False
+
+    @staticmethod
+    def _resolve_entity_identity(
+        *,
+        row: dict[str, Any],
+        raw_field_name: str,
+        node_label: str | None,
+        resolved_property: str | None,
+        row_id_fields: dict[str, Any],
+    ) -> tuple[str | None, Any]:
+        if node_label not in {"SPU", "SKU"}:
+            return None, None
+        if not row_id_fields and resolved_property != "name" and AgentController._paired_name_field(raw_field_name) is None:
+            return None, None
+
+        preferred_keys = []
+        lowered = raw_field_name.lower()
+        if node_label == "SKU":
+            if lowered.startswith("sku"):
+                preferred_keys.append("sku_id")
+            preferred_keys.extend(["sku_id"])
+        else:
+            if lowered.startswith("product"):
+                preferred_keys.append("product_id")
+            if lowered.startswith("spu"):
+                preferred_keys.append("spu_id")
+            preferred_keys.extend(["product_id", "spu_id"])
+        for key in preferred_keys:
+            if key in row_id_fields:
+                return str(row_id_fields[key]), row_id_fields[key]
+        return None, None
+
+    @staticmethod
+    def _paired_name_field(field_name: str) -> str | None:
+        lowered = field_name.lower()
+        if lowered == "product_name":
+            return field_name
+        if lowered == "spu_name":
+            return field_name
+        if lowered == "sku_name":
+            return field_name
+        if lowered == "name":
+            return field_name
+        return None
+
+    @staticmethod
+    def _is_id_field(field_name: Any) -> bool:
+        text = str(field_name or "")
+        lowered = text.lower()
+        return lowered == "id" or lowered.endswith("_id")
+
+    @staticmethod
+    def _is_scalar_value(value: Any) -> bool:
+        return isinstance(value, SCALAR_EVIDENCE_TYPES)
+
+    @staticmethod
+    def _normalize_field_name(field_name: str) -> str:
+        text = str(field_name or "").strip()
+        if not text:
+            return text
+        text = text.replace(".", "_").replace("-", "_").replace(" ", "_")
+        text = CAMEL_TO_SNAKE_PATTERN_1.sub(r"\1_\2", text)
+        text = CAMEL_TO_SNAKE_PATTERN_2.sub(r"\1_\2", text)
+        text = re.sub(r"_+", "_", text)
+        return text.lower().strip("_")
+
+    @staticmethod
+    def _uses_entity_id_lookup(cypher_query: str, raw_entities: list[EntityRef]) -> bool:
+        if not cypher_query or not raw_entities:
+            return False
+        by_param = {
+            str(item.param_name or "").strip(): str(item.label or "").strip()
+            for item in raw_entities
+            if str(item.param_name or "").strip() and str(item.label or "").strip()
+        }
+        if not by_param:
+            return False
+        variable_labels = AgentController._parse_variable_labels(cypher_query)
+        for matched in ENTITY_ID_LOOKUP_PATTERN.finditer(cypher_query):
+            variable_name = matched.group(1)
+            param_name = matched.group(2)
+            variable_label = variable_labels.get(variable_name)
+            if variable_label is None:
+                continue
+            if by_param.get(param_name) == variable_label:
+                return True
+        return False
+
+    @staticmethod
+    def _parse_variable_labels(cypher_query: str) -> dict[str, str]:
+        labels = {}
+        for variable, label in MATCH_LABEL_PATTERN.findall(cypher_query or ""):
+            labels.setdefault(variable, label)
+        return labels
+
+    @staticmethod
+    def _parse_return_alias_map(cypher_query: str) -> dict[str, dict[str, str | None]]:
+        lowered = cypher_query.lower()
+        marker = " return "
+        index = lowered.find(marker)
+        if index < 0:
+            return {}
+        clause = cypher_query[index + len(marker) :]
+        items = []
+        current = []
+        depth = 0
+        for char in clause:
+            if char in "([{" :
+                depth += 1
+            elif char in ")]}":
+                depth = max(depth - 1, 0)
+            if char == "," and depth == 0:
+                items.append("".join(current).strip())
+                current = []
+                continue
+            current.append(char)
+        if current:
+            items.append("".join(current).strip())
+
+        mapping = {}
+        for item in items:
+            matched = RETURN_ALIAS_PATTERN.match(item)
+            if matched is None:
+                continue
+            variable, prop, alias = matched.groups()
+            output_name = alias or f"{variable}.{prop}"
+            mapping[str(output_name)] = {
+                "var": variable,
+                "prop": prop,
+                "label": None,
+            }
+        return mapping
+
 
 class KGQAPlanner:
     def __init__(self, resources):
@@ -679,6 +1100,9 @@ class KGQAPlanner:
 
 图谱 schema：
 {schema_info}
+
+约束：
+- 对需要实体对齐的参数，禁止生成 `id(node) = $param` 或 `elementId(node) = $param` 这类按图内部 ID 匹配的条件；默认使用 `node.name = $param` 或等价的业务属性匹配。
 
 输出格式：
 {{

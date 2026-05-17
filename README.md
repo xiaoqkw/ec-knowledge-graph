@@ -13,10 +13,11 @@
 - **KGQA 分阶段评测**：`full` vs. `ablation`（去掉实体对齐）在 `non_empty_result_rate` 上 `+20.5 pts`，在 `answer_keyword_hit_rate` 上 `+15.8 pts`
 - **实体链接评测**：`hybrid` vs. `fulltext` 在 top-1 accuracy 上 `+13.0 pts`，top-k recall 上 `+14.3 pts`；`hybrid_rerank` 在 SKU 子集 top-1 accuracy 上相对 `hybrid` 再提升 `+5.0 pts`
 - **多轮导购评测**：`30` 条状态机 / 工具调用回归集上 `task_success_rate=100%`；真实单轮 NLU 诊断集 `intent_accuracy=90%`、`slot_f1=100%`；真实 smoke 联调 `5/5` 通过
-- **KGQA Replay / A-B**：支持基于历史 `ExecutionTrace` 的 CLI live replay，对比 `current / memory_on / ablation` 变体的回归、改善、缓存收益和延迟分布
+- **KGQA Replay / A-B**：对 `41` 个 session / `42` 条 trace 做 live replay,`memory_on` vs `current` 在 `hard_success_rate` 上 `+4.76 pts`、`non_empty_result_rate` 上 `+2.38 pts`、回归 case 从 3 降到 1 且 p50 延迟同量级；`ablation` 反向证明实体对齐对查询命中的承重位置(`non_empty_result_rate` `-33.3 pts`)
+- **KG-RAG 双路证据链**：`/api/agent/chat` 返回 `answer + evidence`,evidence 由 controller 从图谱结果**确定性**抽取,文本仅复用 `SPU.description` 做解释补充——LLM 不输出 evidence,事实 100% 可追溯
 - **NER 数据策略迭代**：`ATTR F1 +13.5 pts`，`overall F1 +8.0 pts`，同时识别出 `SPEC` 作为独立补强方向
 - **可控性优先**：LLM 不直接决定商品事实与排序；结构化输出有 `json_repair` 修复，Cypher 执行前经过只读安全门禁；导购 NLU 规则优先、LLM 兜底
-- **可观测性**：`ExecutionTrace` 持久化 Agent 工具计划、工具调用、失败标签和延迟；`trace_chat()` 继续兼容旧评测字段
+- **可观测性**：`ExecutionTrace` 持久化 Agent 工具计划、工具调用、失败标签、`evidence` 和延迟；`trace_chat()` 继续兼容旧评测字段
 
 ## 项目定位
 
@@ -27,7 +28,7 @@
 - 知识图谱问答：通过工具规划、实体对齐、Cypher 生成和图查询完成自然语言问答
 - 任务型导购对话：围绕手机品类实现 NLU、DST、缺槽追问、图约束检索、排序和对比解释
 
-核心技术标签：`Agent Runtime` | `Text2Cypher` | `Hybrid Entity Linking` | `Controllable TOD` | `Schema-grounded Structured Generation` | `Span-level NER Error Analysis` | `Staged KGQA Evaluation`
+核心技术标签：`Agent Runtime` | `Text2Cypher` | `Hybrid Entity Linking` | `KG-RAG (graph + text evidence)` | `Controllable TOD` | `Schema-grounded Structured Generation` | `Trace Replay / A-B` | `Span-level NER Error Analysis` | `Staged KGQA Evaluation`
 
 ## 关键结果
 
@@ -43,6 +44,9 @@
 | Dialogue Eval | intent accuracy | - | 真实 NLU 诊断 `0.9000` | - |
 | Dialogue Eval | slot F1 | - | 真实 NLU 诊断 `1.0000` | - |
 | Dialogue Eval | smoke pass rate | - | `5/5` 通过 | - |
+| KGQA Replay | hard_success_rate | current 0.3810 | memory_on 0.4286 | **+4.76 pts** |
+| KGQA Replay | non_empty_result_rate | current 0.9524 | memory_on 0.9762 | **+2.38 pts** |
+| KGQA Replay | non_empty_result_rate | current 0.9524 | ablation 0.6190 | **-33.3 pts**(反向验证实体对齐) |
 | NER（数据策略迭代） | ATTR F1 | 初版 0.6077 | 当前 0.7425 | **+13.5 pts** |
 | NER（数据策略迭代） | overall F1 | 初版 0.6449 | 当前 0.7248 | +8.0 pts |
 | NER（数据策略迭代） | SPEC F1 | 初版 0.6683 | 当前 0.5210 | -14.7 pts（已识别为补强方向） |
@@ -50,8 +54,10 @@
 - KGQA `template` baseline 在当前图谱事实下达到 1.0000，作为可执行上限参考
 - KGQA 评测集 `39` 条（`must_execute=38`），Entity Linking 评测集 `77` 条
 - 导购评测集：主回归任务 `30` 条、NLU 诊断样本 `10` 条、smoke case `5` 条
+- KGQA Replay 样本：`41` 个 session / `42` 条 source trace,`memory_on` 回归 case `1`,`current` 回归 case `3`,`changed_same_outcome` 大量出现是 P2-1 evidence 引入后的预期行为(行为形态变化,不计入主 KPI diff)
 - 结果数据源：`logs/eval/`，评测脚本：`src/eval/kgqa_eval.py`、`src/eval/entity_linking_eval.py`、`src/eval/dialogue_eval.py`、`src/eval/dialogue_nlu_eval.py`、`src/eval/dialogue_smoke.py`
 - Replay 产物目录：`logs/replay/`，主脚本：`src/eval/replay.py`
+- 注:`hard_success_rate` 是 replay 严格口径(new trace 行为与 source trace 等价或更优),与 `kgqa_eval.py` 的 `answer_keyword_hit_rate` 口径不同,不能直接对比
 
 ## 系统架构
 
@@ -69,8 +75,11 @@ flowchart LR
     H --> I[Agentic Text2Cypher KGQA]
     H --> J[手机导购检索]
 
-    I --> R[Agent Runtime / Trace]
+    I --> EV[Evidence Builder<br/>graph + SPU.description]
+    EV --> R[Agent Runtime / ExecutionTrace]
     J --> R
+    R --> TR[(logs/traces/)]
+    TR -.replay.-> RP[Replay CLI / A-B Variant]
     R --> K[FastAPI 服务]
     K --> L[Web UI]
 ```
@@ -80,7 +89,7 @@ flowchart LR
 ### 1. Text2Cypher KGQA
 
 ```text
-用户问题 -> 工具规划 -> 实体对齐 -> Cypher 校验 -> Neo4j 查询 -> 答案生成
+用户问题 -> 工具规划 -> 实体对齐 -> Cypher 校验 -> Neo4j 查询 -> evidence 组装 -> 答案生成
 ```
 
 范式定位：
@@ -96,7 +105,9 @@ flowchart LR
 - 待对齐实体单独输出到 `entities_to_align`，与最终查询结构解耦，便于独立评测 entity linking
 - `label` 字段只能来自真实图谱节点标签，避免幻觉标签进入执行链
 - Cypher 执行前经过 `CypherGuard`，做多语句拦截、写操作关键字拦截、`LIMIT` 约束和可选 `EXPLAIN` 校验
+- 对需要实体对齐的参数，规划阶段禁止 `id(node) = $param` / `elementId(node) = $param` 这类内部 ID 匹配条件，默认使用 `name` 等业务属性匹配
 - LLM 只生成查询结构与答案文本，不直接决定图谱事实
+- graph evidence 由 controller 从查询结果确定性抽取；text evidence 只复用 `SPU.description`，并通过 `SPU/SKU -> SPU` 精确反查补充，不引入独立文本检索链
 
 ### 2. Hybrid Entity Linking
 
@@ -115,6 +126,8 @@ flowchart LR
 - `Trademark` 和 `SPU` 的对齐最稳定；`SKU` 仍是最难实体，原因是名称长、版本差异细、近邻 SKU 相似度高
 
 另有一个仅离线评测使用的 `hybrid_rerank` 方案：对 `SKU` 做 `fulltext top-20 + hybrid top-20` 的候选 union，再用规则 reranker 重排；当前在 SKU 子集上把 top-1 accuracy 从 `0.6500` 提升到 `0.7000`，且 `rerank_hurt=0`。其结果会写入 `logs/eval/entity_linking_hybrid_rerank_memory_off.jsonl`，并在 `logs/eval/sku_reranker/` 下输出 helped/hurt/still_wrong 三类错误分析文件。
+
+> 当前 SKU 子集仅 `20` 条样本,该改善作为离线 baseline 沉淀,**不改变线上 `entity_link_tool` 默认行为**——上线前置条件包括评测集扩到 50+ 条 + 95% 置信区间下显著(McNemar test 或 paired bootstrap) + latency 增量 < 5%(详见 plan.md P1-4)。
 
 ### 3. 可控任务型导购对话
 
@@ -161,7 +174,8 @@ NLU -> Dialogue State -> 缺槽追问 -> Neo4j 图约束检索 -> SPU 去重 -> 
 | 触点 | 输入 | 输出结构 | 是否决定事实 | 兜底 |
 | --- | --- | --- | --- | --- |
 | KGQA 工具规划 | 问题 + schema + 最近历史 | `JSON(tool_plan, cypher_query, entities_to_align)` | 否，受 schema、工具白名单与查询执行约束 | `json_repair` 修复 → 默认工具计划 / 模板 Cypher 兜底 |
-| KGQA 答案生成 | 问题 + 查询结果 + 最近历史 | 自然语言文本 | 否，只基于图查询结果表达 | 无结果时固定说明；LLM 缺席时回落 JSON dump |
+| KGQA 证据组装 | 查询结果 + `SPU.description` | `evidence[]` | 否，由 controller 确定性抽取 / 反查 | text 补证失败时降级为 graph-only |
+| KGQA 答案生成 | 问题 + 查询结果 + 最近历史 + `evidence[]` | 自然语言文本 | 否，只基于图查询结果表达，`SPU.description` 仅补充解释 | 无结果时固定说明；LLM 缺席时回落 JSON dump |
 | 导购 NLU | 用户话术 | `intent + slots` | 否，规则优先，LLM 仅做复杂语义兜底 | 规则 NLU |
 | 导购回复润色 | 基础回复 + context | 自然语言文本 | 否，不改结论、不造商品 | 异常时返回 fallback 文本 |
 
@@ -221,6 +235,82 @@ KGQA Prompt 不是自由生成，而是围绕明确输入和输出契约设计�
 - 当前 KGQA 剩余误差主要集中在实体覆盖和查询生成，而不是 JSON 解析或 Cypher 执行
 - 结构化输出与执行链路已经较稳定，问题收敛到语义层
 
+## KG-RAG 双路证据链
+
+P2-1 把 KGQA 从 "LLM 输出答案" 升级到 "LLM 输出答案 + 结构化 evidence"，形成图谱事实 + OpenBG 文本解释的双路证据链。
+
+### 设计原则
+
+| 原则 | 落地 |
+| --- | --- |
+| LLM 不输出 evidence | evidence 由 `AgentController` 从图查询结果确定性抽取,字段值不经任何变换 |
+| 图谱是事实源,文本是解释源 | graph evidence 和 text evidence 冲突时一律以图谱结果为准 |
+| 不引入独立文本检索链 | 文本证据复用现有 `SPU.description`,通过 `SPU.name` **精确反查**(unique constraint),不做模糊匹配、不建独立 fulltext / vector 索引 |
+| best-effort 全量覆盖 | 所有 KGQA 路径都返回 `evidence` 字段,字段永不为 None；反查失败降级为仅 graph evidence,不阻塞 answer 返回 |
+
+### 范式定位：KG-RAG fact-grounded text augmentation
+
+不是经典 RAG 的 `query → vector retrieval → top-k passages → LLM`,而是 `query → entity link → graph traversal → 命中节点的关联文本属性 → LLM`。优势：
+
+- 图谱已经通过实体对齐 + Cypher 完成精确定位,直接拉取关联文本比再跑一次文本检索更准、更快、更可解释
+- 避免"图谱召回了 A,文本召回了 B,二者不一致"的融合问题
+- evidence 100% 对应真实图谱节点,前端可以直接做溯源高亮
+
+### 输出契约
+
+`/api/agent/chat` 在原有 `answer / session_id / trace_id / plan_summary / latency_ms` 之外,新增 `evidence: list[EvidenceItem]`：
+
+```json
+{
+  "answer": "Apple 当前在售机型包括 iPhone 15 Pro、iPhone 15 等...",
+  "evidence": [
+    {
+      "kind": "graph",
+      "source": "graph",
+      "node_label": "SPU",
+      "field_name": "product_name",
+      "value": "Apple iPhone 16 Pro",
+      "entity_id": "19",
+      "text_excerpt": null
+    },
+    {
+      "kind": "text",
+      "source": "spu_description",
+      "node_label": "SPU",
+      "field_name": "description",
+      "value": "Apple iPhone 16 Pro",
+      "entity_id": "19",
+      "text_excerpt": "旗舰性能与影像能力兼顾。"
+    }
+  ]
+}
+```
+
+`EvidenceItem` 当前采用最小稳定结构：`kind / source / node_label / field_name / value / entity_id / text_excerpt`。其中：
+
+- `kind = graph | text`
+- `source = graph | spu_description`
+- graph evidence 来自 query result 的确定性抽取
+- text evidence 只复用 `SPU.description`
+
+`/api/chat` 兼容接口保持原有 `message + session_id` 契约不变。
+
+### 落地纪律
+
+- **数量上限**：graph evidence 最多 3 条唯一值,text evidence 最多 2 条唯一 SPU,总数天然不超过 5
+- **字段规范化**：`field_name` 会统一转成 snake_case,避免 LLM 临时 alias 直接泄露到 API 契约
+- **文本反查**：优先走 `SPU/SKU` 显式业务 ID,其次才按 `SPU.name / SKU.name` 精确反查；全部 batch 执行,**不做 N+1**
+- **内部 ID 保护**：对需要实体对齐的参数,禁止规划出 `id(node) = $param` / `elementId(node) = $param` 这类内部 ID 匹配路径,命中后直接回退模板计划
+- **trace 单一事实源**：evidence 只写 `ExecutionTrace.evidence`,debug/replay/API 都读这一份
+
+### 已知限制
+
+- `SPU.description` 既可能来自结构化主链路 `spu_info.description`,也可能来自 `openbg_text_sync.py` 对 `source='openbg'` 节点的补写；当前 text evidence 的 `source=spu_description` 只表示“来自 `SPU.description` 这层文本字段”,不区分更细来源
+- 若底层 `SPU.description` 源数据本身错配,evidence 会如实暴露该问题；这属于数据质量问题,不是 P2-1 证据组装逻辑问题
+- evidence 与 answer 是**事实同源但形式独立**：answer 由 LLM 写,可能引用 evidence 列表外的查询结果细节；evidence 不是 answer 的"严格出处清单",而是"主要证据采样",更严格的 answer-evidence attribution 属于后续研究问题
+
+
+
 ## 中文商品 NER
 
 NER 抽取 3 类实体：
@@ -262,6 +352,14 @@ span-level error analysis 产物在 `logs/ner/`（`ner_error_summary.json` / `ne
 
 旧评测脚本仍通过 `ChatService.trace_chat()` 获取扁平字段；这些字段现在由 `ExecutionTrace` 投影而来，便于保持历史评测口径稳定。
 
+P2-1 之后，`ExecutionTrace` 还会记录顶层 `evidence` 字段（与 `/api/agent/chat` 返回内容一致,但语义角色是诊断+评测产物,服务于 P1-3 Replay 的 evidence 数量 / source 分布 diff）：
+
+- `kind = graph | text`
+- `source = graph | spu_description`
+- `node_label / field_name / value / entity_id / text_excerpt` 组成最小稳定结构
+- graph evidence 直接来自 query result 的确定性抽取(controller 内联,不进 tool registry)
+- text evidence 只来自 `SPU.description`,通过 `SPU/SKU -> SPU` 精确反查附加,不参与事实裁决
+
 **评测指标依赖字段：**
 
 - `parse_success_raw`、`parse_success_repaired`
@@ -274,10 +372,11 @@ span-level error analysis 产物在 `logs/ner/`（`ner_error_summary.json` / `ne
 - `raw_cypher_output`、`repaired_cypher_output`
 - `entities_to_align`、`aligned_entities`、`executed_params`
 - `execution_error`、`query_result`、`answer`
+- `evidence`
 
 **Agent API：**
 
-- `POST /api/agent/chat`：返回答案、`trace_id`、工具计划摘要、延迟和 fallback 信息
+- `POST /api/agent/chat`：返回答案、`evidence`、`trace_id`、工具计划摘要、延迟和 fallback 信息
 - `GET /api/agent/traces/{trace_id}`：按 trace id 查看完整执行轨迹
 - `GET /api/agent/traces?session_id=...`：按会话查看 trace 列表
 - `POST /api/agent/replay`：读取并返回已持久化 trace；当前不是重新执行不同 runtime 的完整 replay 评测框架
@@ -372,3 +471,5 @@ GET /api/agent/traces/{trace_id}
 - 当前 QA 评测集仍是小而全的种子集（KGQA 39 / Entity Linking 77），适合做链路验证与归因，不等同于成熟 benchmark
 - 评测集由人工构造，未覆盖长尾口语化表述、跨类目推理和多跳查询场景
 - `answer_keyword_hit_rate` 是弱代理指标，当前实现是大小写不敏感子串匹配，不能替代人工评测或 LLM-as-judge
+- KG-RAG 文本证据依赖 `SPU.description` 的覆盖率与数据质量；该字段既可能来自结构化主链路 `spu_info.description`,也可能来自 `openbg_text_sync.py` 对 `source='openbg'` 节点的补写。若底层 description 缺失或错配,text evidence 会降级为空或如实暴露该问题
+- SKU 子集仅 20 条样本,`hybrid_rerank` 的 +5 pts 改善置信区间宽,**已显式作为离线 baseline 沉淀**,触发上线需要评测集扩到 50+ 条且 statistical significance 成立(详见 plan.md P1-4)

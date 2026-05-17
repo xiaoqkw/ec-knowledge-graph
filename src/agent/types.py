@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,16 @@ class ToolCallRecord(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class EvidenceItem(BaseModel):
+    kind: Literal["graph", "text"]
+    source: Literal["graph", "spu_description"]
+    node_label: str | None = None
+    field_name: str
+    value: str
+    entity_id: str | None = None
+    text_excerpt: str | None = None
+
+
 class ExecutionTrace(BaseModel):
     request_id: str
     session_id: str
@@ -44,6 +54,7 @@ class ExecutionTrace(BaseModel):
     latency_breakdown: dict[str, int] = Field(default_factory=dict)
     final_answer: str = ""
     total_latency_ms: int = 0
+    evidence: list[EvidenceItem] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

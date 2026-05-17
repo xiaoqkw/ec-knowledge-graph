@@ -143,6 +143,7 @@ class ChatService:
             "query_result": metadata.get("query_result", []),
             "non_empty_result": bool(metadata.get("query_result", [])),
             "answer": result.answer,
+            "evidence": [dump_model(item) for item in getattr(trace, "evidence", [])],
             "trace_id": trace.request_id,
         }
 
@@ -213,6 +214,7 @@ class ChatService:
             "query_result": query_result,
             "non_empty_result": non_empty_result,
             "answer": answer,
+            "evidence": [],
         }
 
     def _build_cypher_prompt(self, question: str, history: list[dict[str, str]] | None = None) -> str:

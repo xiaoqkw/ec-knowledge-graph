@@ -282,6 +282,7 @@ class WebAppTestCase(unittest.TestCase):
                         "tool_calls": [type("ToolCall", (), {"tool_name": "entity_link_tool"})()],
                         "total_latency_ms": 12,
                         "fallback_used": None,
+                        "evidence": [],
                         "dict": lambda self: {"request_id": "trace-1", "tool_calls": []},
                     },
                 )()
@@ -319,6 +320,7 @@ class WebAppTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             payload = response.json()
             self.assertEqual(payload["answer"], "agent answer")
+            self.assertEqual(payload["evidence"], [])
             self.assertEqual(payload["trace_id"], "trace-1")
             self.assertEqual(payload["plan_summary"][0]["tool"], "entity_link_tool")
             self.assertEqual(payload["trace"]["request_id"], "trace-1")

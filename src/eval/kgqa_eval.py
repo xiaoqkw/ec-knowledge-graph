@@ -8,6 +8,7 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from agent.runtime import dump_model
 from configuration.config import LOG_DIR
 from web.memory import CachedAlignedEntity, FailureMemory, InMemoryQASessionStore
 from web.service import ChatService
@@ -107,6 +108,7 @@ def run_template_baseline(service: ChatService, sample: dict) -> dict:
         "non_empty_result": non_empty_result,
         "query_result": query_result,
         "answer": answer,
+        "evidence": [],
         "answer_keyword_hit": answer_keyword_hit(answer, sample.get("answer_keywords", [])),
         "entity_any_coverage_hit": any_hit,
         "entity_all_coverage_hit": all_hit,
@@ -156,6 +158,7 @@ def _trace_result_to_record(question: str, result) -> dict:
         "query_result": metadata.get("query_result", []),
         "non_empty_result": bool(metadata.get("query_result", [])),
         "answer": result.answer,
+        "evidence": [dump_model(item) for item in trace.evidence],
         "trace_id": trace.request_id,
     }
 
@@ -210,6 +213,7 @@ def run_llm_baseline(
         "non_empty_result": trace["non_empty_result"],
         "query_result": trace["query_result"],
         "answer": trace["answer"],
+        "evidence": trace.get("evidence", []),
         "answer_keyword_hit": answer_keyword_hit(trace["answer"], sample.get("answer_keywords", [])),
         "entity_any_coverage_hit": any_hit,
         "entity_all_coverage_hit": all_hit,

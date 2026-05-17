@@ -164,6 +164,7 @@ def agent_chat_api(turn: AgentTurnRequest, debug: bool = False) -> AgentResponse
     )
     response = AgentResponse(
         answer=result.answer,
+        evidence=result.trace.evidence,
         session_id=result.session_id,
         trace_id=result.trace.request_id,
         plan_summary=[PlanSummaryItem(tool=item.tool_name) for item in result.trace.plan],

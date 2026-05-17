@@ -5,12 +5,14 @@ import json
 from pydantic import BaseModel, Field
 
 from agent.tools.base import ToolBase
+from agent.types import EvidenceItem
 
 
 class AnswerInput(BaseModel):
     question: str
     query_result: list[dict] = Field(default_factory=list)
     history: list[dict[str, str]] = Field(default_factory=list)
+    evidence: list[EvidenceItem] = Field(default_factory=list)
 
 
 class AnswerOutput(BaseModel):
@@ -45,15 +47,23 @@ class AnswerTool(ToolBase):
 
 查询结果：{query_result}
 
+辅助证据（图谱事实优先，SPU.description 仅作解释补充）：
+{evidence}
+
 要求：
 1. 如果查询结果为空，明确告诉用户当前图谱中没有找到相关信息。
 2. 不要编造查询结果中不存在的事实。
-3. 回答尽量简洁。
+3. 不能让辅助证据改写查询结果里已有的事实、数量、归属或结论。
+4. 回答尽量简洁。
 """
         rendered_prompt = prompt.format(
             question=payload.question,
             history_text=self._format_history(payload.history),
             query_result=json.dumps(payload.query_result, ensure_ascii=False),
+            evidence=json.dumps(
+                [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in payload.evidence],
+                ensure_ascii=False,
+            ),
         )
         output = llm.invoke(rendered_prompt)
         content = getattr(output, "content", str(output)).strip()

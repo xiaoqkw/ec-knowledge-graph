@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from agent.types import EvidenceItem
+
 
 class Question(BaseModel):
     message: str
@@ -24,6 +26,7 @@ class PlanSummaryItem(BaseModel):
 
 class AgentResponse(BaseModel):
     answer: str
+    evidence: list[EvidenceItem] = Field(default_factory=list)
     session_id: str
     trace_id: str
     plan_summary: list[PlanSummaryItem] = Field(default_factory=list)

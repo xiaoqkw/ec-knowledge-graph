@@ -48,6 +48,7 @@ KGQA 链路的标准工具目前包括：
 - `fallback_used`
 - `latency_breakdown`
 - `final_answer`
+- `evidence`
 
 当前标准失败标签包括：
 
@@ -59,6 +60,13 @@ KGQA 链路的标准工具目前包括：
 - `query_timeout`
 - `query_empty`
 - `answer_weak`
+
+P2-1 之后，KGQA trace 还会带顶层 `evidence`：
+
+- `kind = graph | text`
+- `source = graph | spu_description`
+- graph evidence 由 controller 从 query result 确定性抽取
+- text evidence 只复用 `SPU.description`，通过 `SPU/SKU -> SPU` 精确反查补充
 
 ### 1.3 CypherGuard
 
@@ -444,6 +452,7 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline all --en
 - `cypher_execution_success_rate` 和 `non_empty_result_rate` 只在 `must_execute=true` 子集上统计。
 - `answer_keyword_hit_rate` 只在 `has_answer_keywords=True` 的样本上统计。
 - `template` baseline 现在可以独立运行，不再因为 eager embedding 初始化阻塞。
+- P2-1 之后，`kgqa_<baseline>_*.jsonl` 每条记录会额外带 `evidence` 字段；当前指标计算不消费它，因此不会改变既有 KPI 口径。
 
 ### 5.4 KGQA Replay / A-B
 
@@ -549,6 +558,26 @@ Content-Type: application/json
 ```json
 {
   "answer": "答案文本",
+  "evidence": [
+    {
+      "kind": "graph",
+      "source": "graph",
+      "node_label": "SPU",
+      "field_name": "product_name",
+      "value": "Apple iPhone 16 Pro",
+      "entity_id": "19",
+      "text_excerpt": null
+    },
+    {
+      "kind": "text",
+      "source": "spu_description",
+      "node_label": "SPU",
+      "field_name": "description",
+      "value": "Apple iPhone 16 Pro",
+      "entity_id": "19",
+      "text_excerpt": "旗舰性能与影像能力兼顾。"
+    }
+  ],
   "session_id": "session-id",
   "trace_id": "trc_20260516_xxxxxxxx",
   "plan_summary": [
@@ -569,6 +598,12 @@ POST /api/agent/chat?debug=true
 ```
 
 此时响应中会内联完整 `trace`。
+
+说明：
+
+- `evidence` 是结构化可追溯证据，不是 LLM 自由生成文本
+- 图谱查询结果决定事实；`SPU.description` 只做解释补充
+- 若 text 补证失败，接口会降级为仅返回 graph evidence
 
 ### 6.3 Trace 查询
 

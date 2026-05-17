@@ -8,6 +8,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from agent.controller import AgentController
+from agent.types import EvidenceItem
 
 
 class StubResources:
@@ -99,6 +100,83 @@ class StubPlanner:
 
 
 class AgentControllerTestCase(unittest.TestCase):
+    def test_field_name_normalizes_to_snake_case(self):
+        self.assertEqual(AgentController._normalize_field_name("productName"), "product_name")
+        self.assertEqual(AgentController._normalize_field_name("BrandName"), "brand_name")
+        self.assertEqual(AgentController._normalize_field_name("spu.name"), "spu_name")
+
+    def test_non_name_spu_field_can_bind_lookup_id_when_explicit_id_exists(self):
+        entity_id, lookup_id = AgentController._resolve_entity_identity(
+            row={"price": 1999, "spu_id": 12},
+            raw_field_name="price",
+            node_label="SPU",
+            resolved_property="price",
+            row_id_fields={"spu_id": 12},
+        )
+        self.assertEqual(entity_id, "12")
+        self.assertEqual(lookup_id, 12)
+
+    def test_non_name_field_does_not_bind_generic_id(self):
+        entity_id, lookup_id = AgentController._resolve_entity_identity(
+            row={"price": 1999, "id": 88},
+            raw_field_name="price",
+            node_label="SPU",
+            resolved_property="price",
+            row_id_fields={"id": 88},
+        )
+        self.assertIsNone(entity_id)
+        self.assertIsNone(lookup_id)
+
+    def test_sku_field_does_not_bind_product_id_fallback(self):
+        entity_id, lookup_id = AgentController._resolve_entity_identity(
+            row={"price": 1999, "product_id": 12},
+            raw_field_name="price",
+            node_label="SKU",
+            resolved_property="price",
+            row_id_fields={"product_id": 12},
+        )
+        self.assertIsNone(entity_id)
+        self.assertIsNone(lookup_id)
+
+    def test_sku_field_prefers_sku_id_over_spu_id(self):
+        entity_id, lookup_id = AgentController._resolve_entity_identity(
+            row={"price": 1999, "spu_id": 12, "sku_id": 34},
+            raw_field_name="price",
+            node_label="SKU",
+            resolved_property="price",
+            row_id_fields={"spu_id": 12, "sku_id": 34},
+        )
+        self.assertEqual(entity_id, "34")
+        self.assertEqual(lookup_id, 34)
+
+    def test_entity_id_lookup_guard_does_not_reject_mixed_query_on_other_label(self):
+        cypher_query = (
+            "MATCH (tm:Trademark {name: $param_0}) "
+            "MATCH (spu:SPU) WHERE id(spu) = $param_1 "
+            "RETURN tm.name AS brand_name"
+        )
+        raw_entities = [
+            type("Entity", (), {"param_name": "param_0", "label": "Trademark"})(),
+            type("Entity", (), {"param_name": "param_1", "label": "Category3"})(),
+        ]
+        self.assertFalse(AgentController._uses_entity_id_lookup(cypher_query, raw_entities))
+
+    def test_evidence_item_rejects_invalid_kind_and_source(self):
+        with self.assertRaises(Exception):
+            EvidenceItem(
+                kind="bad",
+                source="graph",
+                field_name="name",
+                value="x",
+            )
+        with self.assertRaises(Exception):
+            EvidenceItem(
+                kind="graph",
+                source="bad",
+                field_name="name",
+                value="x",
+            )
+
     def test_planner_exception_sets_fallback(self):
         runtime = StubRuntime()
         controller = object.__new__(AgentController)
@@ -142,6 +220,7 @@ class AgentControllerTestCase(unittest.TestCase):
         controller = object.__new__(AgentController)
         controller.runtime = runtime
         controller.retriever = None
+        controller.schema_mapping_cache = None
 
         import agent.controller as controller_module
 
@@ -162,6 +241,7 @@ class AgentControllerTestCase(unittest.TestCase):
         self.assertEqual(runtime.calls[0][1]["mode"], "fulltext")
         self.assertEqual(runtime.calls[0][1]["top_k"], 5)
         self.assertEqual(runtime.calls[1][1]["timeout_ms"], 3456)
+        self.assertIn("evidence", runtime.calls[2][1])
 
     def test_invalid_tool_arguments_fallback_to_defaults(self):
         runtime = StubRuntime()
@@ -190,6 +270,49 @@ class AgentControllerTestCase(unittest.TestCase):
         self.assertEqual(runtime.calls[1][1]["timeout_ms"], 2000)
         self.assertEqual(result.trace.fallback_used, "default_tool_arguments")
         self.assertIn("plan_schema_invalid", result.trace.failure_tags)
+
+    def test_entity_id_lookup_plan_is_rejected_and_falls_back_to_template(self):
+        runtime = StubRuntime()
+        controller = object.__new__(AgentController)
+        controller.runtime = runtime
+        controller.retriever = None
+        controller.schema_mapping_cache = None
+
+        import agent.controller as controller_module
+
+        class IdLookupPlanner:
+            def plan(self, question, *, history=None, memory_hint=None):
+                return {
+                    "raw_content": "{}",
+                    "repaired_content": "{}",
+                    "parse_success_raw": True,
+                    "parse_success_repaired": True,
+                    "payload": {
+                        "tool_plan": [
+                            {"tool_name": "entity_link_tool", "arguments": {"mode": "hybrid", "top_k": 3}},
+                            {"tool_name": "graph_query_tool", "arguments": {"timeout_ms": 2000}},
+                            {"tool_name": "answer_tool", "arguments": {}},
+                        ],
+                        "cypher_query": "MATCH (t:Trademark) WHERE id(t) = $param_0 RETURN t.name AS name",
+                        "entities_to_align": [
+                            {"param_name": "param_0", "entity": "苹果", "label": "Trademark"},
+                        ],
+                    },
+                    "parse_error": None,
+                    "plan_valid": True,
+                }
+
+        original = controller_module.KGQAPlanner
+        controller_module.KGQAPlanner = lambda resources: IdLookupPlanner()
+        try:
+            result = AgentController.run_kgqa(controller, "苹果都有哪些产品？")
+        finally:
+            controller_module.KGQAPlanner = original
+
+        self.assertEqual(result.trace.fallback_used, "template_cypher")
+        self.assertTrue(result.trace.metadata["planner_entity_id_lookup_rejected"])
+        self.assertIn("plan_schema_invalid", result.trace.failure_tags)
+        self.assertIn("name: $param_0", result.trace.metadata["cypher_query"])
 
     def test_answer_tool_is_not_executed_when_missing_from_plan(self):
         runtime = StubRuntime()

@@ -296,6 +296,7 @@ def trace_entity_link_full_skip(trace: ExecutionTrace) -> bool:
 
 def summarize_trace(trace: ExecutionTrace) -> dict[str, Any]:
     metadata = trace.metadata or {}
+    evidence_sources = sorted({str(item.source) for item in trace.evidence or [] if getattr(item, "source", None)})
     return {
         "tool_plan": normalize_tool_plan(trace.plan),
         "aligned_entities": normalize_aligned_entities(metadata.get("aligned_entities", [])),
@@ -310,6 +311,8 @@ def summarize_trace(trace: ExecutionTrace) -> dict[str, Any]:
         "task_memory_hit_count": int(metadata.get("task_memory_hit_count", 0) or 0),
         "task_memory_miss_count": int(metadata.get("task_memory_miss_count", 0) or 0),
         "entity_link_full_skip": trace_entity_link_full_skip(trace),
+        "evidence_count": len(trace.evidence or []),
+        "evidence_sources": evidence_sources,
     }
 
 
@@ -324,6 +327,7 @@ def canonical_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "quality_signals": sorted(str(item) for item in summary["quality_signals"]),
         "execution_success": bool(summary["execution_success"]),
         "non_empty_result": bool(summary["non_empty_result"]),
+        "evidence_sources": sorted(str(item) for item in summary.get("evidence_sources", [])),
     }
 
 
@@ -340,6 +344,8 @@ def build_diff(source_summary: dict[str, Any], replay_summary: dict[str, Any]) -
         "quality_signals_changed": left["quality_signals"] != right["quality_signals"],
         "execution_success_changed": left["execution_success"] != right["execution_success"],
         "non_empty_result_changed": left["non_empty_result"] != right["non_empty_result"],
+        "evidence_count_delta": replay_summary.get("evidence_count", 0) - source_summary.get("evidence_count", 0),
+        "evidence_sources_changed": left["evidence_sources"] != right["evidence_sources"],
         "latency_total_delta_ms": replay_summary["total_latency_ms"] - source_summary["total_latency_ms"],
     }
 

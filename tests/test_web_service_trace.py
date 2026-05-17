@@ -123,6 +123,7 @@ class ChatServiceTraceTestCase(unittest.TestCase):
         )()
         trace = service.trace_chat("question")
         self.assertFalse(trace["execution_success"])
+        self.assertEqual(trace["evidence"], [])
 
     def test_build_session_commit_payload_contains_trace_and_memory_fields(self):
         service = self.build_service()
