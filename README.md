@@ -11,7 +11,7 @@
 ## TL;DR
 
 - **KGQA 分阶段评测**：`full` vs. `ablation`（去掉实体对齐）在 `non_empty_result_rate` 上 `+20.5 pts`，在 `answer_keyword_hit_rate` 上 `+15.8 pts`
-- **实体链接评测**：`hybrid` vs. `fulltext` 在 top-1 accuracy 上 `+13.0 pts`，top-k recall 上 `+14.3 pts`
+- **实体链接评测**：`hybrid` vs. `fulltext` 在 top-1 accuracy 上 `+13.0 pts`，top-k recall 上 `+14.3 pts`；`hybrid_rerank` 在 SKU 子集 top-1 accuracy 上相对 `hybrid` 再提升 `+5.0 pts`
 - **多轮导购评测**：`30` 条状态机 / 工具调用回归集上 `task_success_rate=100%`；真实单轮 NLU 诊断集 `intent_accuracy=90%`、`slot_f1=100%`；真实 smoke 联调 `5/5` 通过
 - **KGQA Replay / A-B**：支持基于历史 `ExecutionTrace` 的 CLI live replay，对比 `current / memory_on / ablation` 变体的回归、改善、缓存收益和延迟分布
 - **NER 数据策略迭代**：`ATTR F1 +13.5 pts`，`overall F1 +8.0 pts`，同时识别出 `SPEC` 作为独立补强方向
@@ -38,6 +38,7 @@
 | KGQA | entity all coverage rate | ablation 0.6923 | full 0.8974 | **+20.5 pts** |
 | Entity Linking | top-1 accuracy | fulltext 0.7532 | hybrid 0.8831 | **+13.0 pts** |
 | Entity Linking | top-k recall | fulltext 0.7922 | hybrid 0.9351 | **+14.3 pts** |
+| Entity Linking（SKU 子集） | top-1 accuracy | hybrid 0.6500 | hybrid_rerank 0.7000 | **+5.0 pts** |
 | Dialogue Eval | task success rate | - | `30` 条回归任务 `1.0000` | - |
 | Dialogue Eval | intent accuracy | - | 真实 NLU 诊断 `0.9000` | - |
 | Dialogue Eval | slot F1 | - | 真实 NLU 诊断 `1.0000` | - |
@@ -112,6 +113,8 @@ flowchart LR
 - `exact_match` 远不够，说明用户表达与图谱标准名之间存在大量格式与表述差异
 - `hybrid`（BM25 + dense vector）明显优于纯全文检索，是当前线上默认对齐策略的合理选择
 - `Trademark` 和 `SPU` 的对齐最稳定；`SKU` 仍是最难实体，原因是名称长、版本差异细、近邻 SKU 相似度高
+
+另有一个仅离线评测使用的 `hybrid_rerank` 方案：对 `SKU` 做 `fulltext top-20 + hybrid top-20` 的候选 union，再用规则 reranker 重排；当前在 SKU 子集上把 top-1 accuracy 从 `0.6500` 提升到 `0.7000`，且 `rerank_hurt=0`。其结果会写入 `logs/eval/entity_linking_hybrid_rerank_memory_off.jsonl`，并在 `logs/eval/sku_reranker/` 下输出 helped/hurt/still_wrong 三类错误分析文件。
 
 ### 3. 可控任务型导购对话
 

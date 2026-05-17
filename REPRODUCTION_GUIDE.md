@@ -369,22 +369,33 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_eval.py --baselin
 - `exact_match`
 - `fulltext`
 - `hybrid`
+- `hybrid_rerank`
 
 输出指标：
 
 - `top1_accuracy`
 - `topk_recall`
 - `by_label_accuracy`
+- `sku_subset_top1_accuracy`
+- `sku_subset_topk_recall`
 
 输出文件：
 
-- `logs/eval/entity_linking_<baseline>.jsonl`
-- `logs/eval/entity_linking_summary.json`
+- `logs/eval/entity_linking_<baseline>_memory_off.jsonl`
+- `logs/eval/entity_linking_summary_memory_off.json`
+- `logs/eval/entity_linking_summary_memory_off.md`（仅 `--baseline all`）
+- `logs/eval/sku_reranker/rerank_helped.jsonl`（仅当本次运行包含 `hybrid_rerank`）
+- `logs/eval/sku_reranker/rerank_hurt.jsonl`
+- `logs/eval/sku_reranker/rerank_still_wrong.jsonl`
 
 说明：
 
 - 该评测默认在“已知正确 label”条件下进行。
 - `hybrid` 会触发 embedding / vector 检索；`exact_match` 和 `fulltext` 不需要向量模型。
+- `hybrid_rerank` 只在 `SKU` 子集上启用；非 `SKU` label 直接复用 `hybrid` 结果。
+- `--baseline all` 会按 `exact_match -> fulltext -> hybrid -> hybrid_rerank` 的固定顺序运行，`hybrid_rerank` 的 helped / hurt 审计会复用同次运行里的 `hybrid` 结果。
+- 该评测现在使用 eval 专用的 no-op trace store，不再向 `logs/traces/` 写 entity linking 的 `tool_only` trace。
+- 当前一组可复现实验结果中，`hybrid_rerank` 把 SKU 子集 top-1 accuracy 从 `0.6500` 提升到 `0.7000`，`sku_subset_topk_recall` 保持 `0.8000`，并且 `rerank_hurt=0`。
 
 ### 5.3 KGQA 分阶段评测
 
