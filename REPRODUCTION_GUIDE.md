@@ -434,7 +434,49 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\kgqa_eval.py --baseline all --en
 - `answer_keyword_hit_rate` 只在 `has_answer_keywords=True` 的样本上统计。
 - `template` baseline 现在可以独立运行，不再因为 eager embedding 初始化阻塞。
 
-### 5.4 评测环境前提
+### 5.4 KGQA Replay / A-B
+
+运行：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\replay.py --traces logs\traces --variant current
+```
+
+多变体对比：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\replay.py --traces logs\traces --variant current --variant memory_on --variant ablation
+```
+
+按失败标签筛选：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\replay.py --traces logs\traces --variant current --failure-tag query_empty
+```
+
+按质量信号筛选并抽样 session：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\replay.py --traces logs\traces --variant memory_on --quality-signal entity_misaligned --sample 10
+```
+
+输出：
+
+- `logs/replay/<run_id>/replay_results.jsonl`
+- `logs/replay/<run_id>/replay_summary.json`
+- `logs/replay/<run_id>/replay_summary.md`
+- `logs/replay/<run_id>/session_manifest.jsonl`
+- `logs/replay/<run_id>/trace_captures/<variant>/<session_key>/<date>/<trace_id>.json`
+
+说明：
+
+- 这一层只重放 `intent == "kgqa"` 且 `tool_only != True` 的主 trace。
+- replay 是基于“本地可见 session 时间线”的 live replay，不尝试完全复原历史线上上下文。
+- session 内 history 复现遵守当前 QA 运行时语义：最多最近 `4` 轮。
+- `current / memory_on / ablation` 是当前内建的三个 replay 变体。
+- replay 执行与历史 `logs/traces/` 隔离，新的 trace capture 只写入 `logs/replay/`。
+
+### 5.5 评测环境前提
 
 KGQA 评测集必须和当前 Neo4j 中的事实一致。也就是说：
 
@@ -557,6 +599,7 @@ Content-Type: application/json
 - 当前实现会按 `trace_id` 读取并返回已落盘 trace
 - 这更接近“trace replay 输入集获取接口”
 - 它还不是一个带多 runtime 变体对比的完整重放评测框架
+- 真正的 replay 执行能力当前只在 `src/eval/replay.py` CLI 提供
 
 ### 6.5 导购接口
 

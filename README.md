@@ -13,6 +13,7 @@
 - **KGQA 分阶段评测**：`full` vs. `ablation`（去掉实体对齐）在 `non_empty_result_rate` 上 `+20.5 pts`，在 `answer_keyword_hit_rate` 上 `+15.8 pts`
 - **实体链接评测**：`hybrid` vs. `fulltext` 在 top-1 accuracy 上 `+13.0 pts`，top-k recall 上 `+14.3 pts`
 - **多轮导购评测**：`30` 条状态机 / 工具调用回归集上 `task_success_rate=100%`；真实单轮 NLU 诊断集 `intent_accuracy=90%`、`slot_f1=100%`；真实 smoke 联调 `5/5` 通过
+- **KGQA Replay / A-B**：支持基于历史 `ExecutionTrace` 的 CLI live replay，对比 `current / memory_on / ablation` 变体的回归、改善、缓存收益和延迟分布
 - **NER 数据策略迭代**：`ATTR F1 +13.5 pts`，`overall F1 +8.0 pts`，同时识别出 `SPEC` 作为独立补强方向
 - **可控性优先**：LLM 不直接决定商品事实与排序；结构化输出有 `json_repair` 修复，Cypher 执行前经过只读安全门禁；导购 NLU 规则优先、LLM 兜底
 - **可观测性**：`ExecutionTrace` 持久化 Agent 工具计划、工具调用、失败标签和延迟；`trace_chat()` 继续兼容旧评测字段
@@ -49,6 +50,7 @@
 - KGQA 评测集 `39` 条（`must_execute=38`），Entity Linking 评测集 `77` 条
 - 导购评测集：主回归任务 `30` 条、NLU 诊断样本 `10` 条、smoke case `5` 条
 - 结果数据源：`logs/eval/`，评测脚本：`src/eval/kgqa_eval.py`、`src/eval/entity_linking_eval.py`、`src/eval/dialogue_eval.py`、`src/eval/dialogue_nlu_eval.py`、`src/eval/dialogue_smoke.py`
+- Replay 产物目录：`logs/replay/`，主脚本：`src/eval/replay.py`
 
 ## 系统架构
 
@@ -276,6 +278,24 @@ span-level error analysis 产物在 `logs/ner/`（`ner_error_summary.json` / `ne
 - `GET /api/agent/traces/{trace_id}`：按 trace id 查看完整执行轨迹
 - `GET /api/agent/traces?session_id=...`：按会话查看 trace 列表
 - `POST /api/agent/replay`：读取并返回已持久化 trace；当前不是重新执行不同 runtime 的完整 replay 评测框架
+
+**Replay CLI：**
+
+- `src/eval/replay.py`：对 `logs/traces/` 下的 KGQA 主 trace 做 live replay
+- 当前只支持 CLI，不把 replay 执行能力挂到 Web API
+- 输出：
+  - `logs/replay/<run_id>/replay_results.jsonl`
+  - `logs/replay/<run_id>/replay_summary.json`
+  - `logs/replay/<run_id>/replay_summary.md`
+  - `logs/replay/<run_id>/session_manifest.jsonl`
+  - `logs/replay/<run_id>/trace_captures/<variant>/<session_key>/<date>/<trace_id>.json`
+
+示例：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\replay.py --traces logs\traces --variant current
+D:\Anaconda_envs\envs\graph\python.exe src\eval\replay.py --traces logs\traces --variant current --variant memory_on --failure-tag query_empty
+```
 
 ## 技术栈
 
