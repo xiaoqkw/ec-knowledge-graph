@@ -1101,8 +1101,21 @@ class KGQAPlanner:
 图谱 schema：
 {schema_info}
 
+文本标签语义约束：
+- `AttributeTag`：表示可结构化、可检索、可作为筛选条件的属性值。优先对应材质、功效、风格、颜色、工艺、功能特征，例如“纯棉”“控油”“去屑”“复古”“白色”“黑色钛金属”“无硅油”。不要把商品主干名词/品类词、低信息量营销词、纯规格型号词标成 `AttributeTag`。连续属性如果可分别筛选，应拆开理解。
+- `PeopleTag`：表示明确的适用对象或人群，例如“儿童”“男士”“女士”“婴幼儿”“女童”“男宝宝”。不要把容量、型号、属性词标成 `PeopleTag`。
+- `SpecTag`：表示规格、数量、容量、型号、版本号、数值范围或组合表达，例如“2K”“150ml”“12GB+256GB”“A3294”“5G”“110码”“iPhone 16 Pro”。数字/字母/符号/单位要整体保留。不要把纯属性词标成 `SpecTag`。
+
 约束：
 - 对需要实体对齐的参数，禁止生成 `id(node) = $param` 或 `elementId(node) = $param` 这类按图内部 ID 匹配的条件；默认使用 `node.name = $param` 或等价的业务属性匹配。
+- `tool_plan` 保持格式中的结构，根据问题合理填写 arguments：
+  - `entity_link_tool`：用于把用户原始实体对齐到图谱标准节点名。可选参数：
+    - `mode`：`fulltext | hybrid`
+    - `top_k`：返回候选数量，整数，范围 `1-10`
+  - `graph_query_tool`：用于执行参数化 Cypher 查询。可选参数：
+    - `timeout_ms`：查询超时毫秒数，整数，范围 `100-10000`
+  - `answer_tool`：用于根据问题、查询结果和证据生成最终中文回答。`arguments` 保持空对象即可。
+- `entities_to_align` 是“0 到多个”待对齐实体列表。
 
 输出格式：
 {{
@@ -1115,8 +1128,13 @@ class KGQAPlanner:
   "entities_to_align": [
     {{
       "param_name": "param_0",
-      "entity": "原始实体名称",
-      "label": "图谱节点标签"
+      "entity": "苹果",
+      "label": "Trademark"
+    }},
+    {{
+      "param_name": "param_1",
+      "entity": "手机",
+      "label": "Category3"
     }}
   ]
 }}

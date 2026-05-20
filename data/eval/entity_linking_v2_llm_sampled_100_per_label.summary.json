@@ -1,0 +1,20 @@
+{
+  "input_path": "data\\eval\\entity_linking_v2_llm.jsonl",
+  "output_path": "data\\eval\\entity_linking_v2_llm_sampled_100_per_label.jsonl",
+  "per_label": 100,
+  "seed": 42,
+  "total": 400,
+  "label_counts": {
+    "Category3": 100,
+    "SKU": 100,
+    "SPU": 100,
+    "Trademark": 100
+  },
+  "unique_golds": 258,
+  "unique_golds_by_label": {
+    "Category3": 61,
+    "SKU": 68,
+    "SPU": 68,
+    "Trademark": 61
+  }
+}

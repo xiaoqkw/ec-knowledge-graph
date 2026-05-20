@@ -99,7 +99,62 @@ class StubPlanner:
         }
 
 
+class PromptCaptureLLM:
+    def __init__(self):
+        self.prompt = ""
+
+    def invoke(self, prompt):
+        self.prompt = prompt
+        return type("Result", (), {"content": "{}"})()
+
+
+class StubJsonParser:
+    @staticmethod
+    def invoke(_content):
+        return {
+            "tool_plan": [
+                {"tool_name": "entity_link_tool", "arguments": {"mode": "hybrid", "top_k": 3}},
+                {"tool_name": "graph_query_tool", "arguments": {"timeout_ms": 2000}},
+                {"tool_name": "answer_tool", "arguments": {}},
+            ],
+            "cypher_query": "MATCH (n:AttributeTag) WHERE n.name = $param_0 RETURN n.name AS name",
+            "entities_to_align": [
+                {"param_name": "param_0", "entity": "不卡顿", "label": "AttributeTag"},
+            ],
+        }
+
+
 class AgentControllerTestCase(unittest.TestCase):
+    def test_kgqa_planner_prompt_includes_tag_semantics(self):
+        import agent.controller as controller_module
+
+        llm = PromptCaptureLLM()
+
+        class PlannerResources:
+            json_parser = StubJsonParser()
+
+            @staticmethod
+            def get_llm():
+                return llm
+
+            @staticmethod
+            def get_schema():
+                return "(:SPU)-[:Have]->(:AttributeTag)"
+
+        planner = controller_module.KGQAPlanner(PlannerResources())
+        planner.plan("帮我找一个不卡顿的手机")
+
+        self.assertIn("AttributeTag", llm.prompt)
+        self.assertIn("PeopleTag", llm.prompt)
+        self.assertIn("SpecTag", llm.prompt)
+        self.assertIn("不要把纯属性词标成 `SpecTag`", llm.prompt)
+        self.assertIn("连续属性如果可分别筛选，应拆开理解", llm.prompt)
+        self.assertIn("entities_to_align` 是“0 到多个”待对齐实体列表", llm.prompt)
+        self.assertIn('"param_name": "param_1"', llm.prompt)
+        self.assertIn('"label": "Category3"', llm.prompt)
+        self.assertIn("`top_k`：返回候选数量，整数，范围 `1-10`", llm.prompt)
+        self.assertIn("`timeout_ms`：查询超时毫秒数，整数，范围 `100-10000`", llm.prompt)
+
     def test_field_name_normalizes_to_snake_case(self):
         self.assertEqual(AgentController._normalize_field_name("productName"), "product_name")
         self.assertEqual(AgentController._normalize_field_name("BrandName"), "brand_name")

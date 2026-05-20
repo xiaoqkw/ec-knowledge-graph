@@ -253,6 +253,8 @@ D:\Anaconda_envs\envs\graph\python.exe src\web\utils.py
 - `data/eval/dialogue_nlu_samples.jsonl`
 - `data/eval/dialogue_smoke_cases.jsonl`
 - `data/eval/entity_linking.jsonl`
+- `data/eval/entity_linking_v2.jsonl`（运行扩充脚本后生成）
+- `data/eval/entity_linking_v2.review.jsonl`（低置信 / 异常样本，供人工抽检）
 - `data/eval/kgqa.jsonl`
 
 ### 5.1 多轮导购评测
@@ -360,6 +362,78 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\dialogue_smoke.py
 
 ### 5.2 实体链接评测
 
+实体链接评测当前分两步：
+
+1. 先生成 / 扩充评测集
+2. 再跑 baseline 对比和显著性检验
+
+#### 5.2.1 生成 v2 扩充评测集
+
+主脚本：
+
+- `src/eval/build_entity_linking_dataset.py`
+
+默认配置：
+
+- 总规模：`1001` 条
+- label 比例：`SKU : Trademark : SPU : Category3 = 4 : 3 : 3 : 3`
+- 当前默认目标数：`SKU 308 / Trademark 231 / SPU 231 / Category3 231`
+
+生成主数据集（推荐先跑无 LLM 版本，最稳）：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\build_entity_linking_dataset.py --no-llm --total-target 1001 --llm-workers 4 --validation-workers 3 --output data\eval\entity_linking_v2.jsonl --review-output data\eval\entity_linking_v2.review.jsonl --summary data\eval\entity_linking_v2.summary.json
+```
+
+如果需要放大总量，例如 `1300` 条：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\build_entity_linking_dataset.py --no-llm --total-target 1300 --output data\eval\entity_linking_v2_1300.jsonl --review-output data\eval\entity_linking_v2_1300.review.jsonl --summary data\eval\entity_linking_v2_1300.summary.json
+```
+
+如果要开启 LLM 扩写（依赖 `.env` 中可用的 `DEEPSEEK_API_KEY`）：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\build_entity_linking_dataset.py --total-target 1001 --llm-batch-size 3 --llm-workers 4 --validation-workers 3 --output data\eval\entity_linking_v2_llm.jsonl --review-output data\eval\entity_linking_v2_llm.review.jsonl --summary data\eval\entity_linking_v2_llm.summary.json
+```
+
+常用参数说明：
+
+- `--dataset`：输入种子集，默认 `data/eval/entity_linking.jsonl`
+- `--total-target`：目标总样本数
+- `--target SKU=...`：单独覆盖某个 label 的目标数
+- `--limit SKU=...`：限制图中每类实体池规模，常用于 smoke
+- `--no-llm`：关闭 LLM 扩写，只保留启发式生成
+- `--llm-batch-size`：每个实体一次请求 LLM 生成多少条候选 query
+- `--llm-workers`：LLM 扩写并发数
+- `--validation-workers`：`exact/fulltext/hybrid` 校验并发数
+- `--output`：主评测集输出路径
+- `--review-output`：低置信 / 异常样本输出路径
+- `--summary`：生成统计摘要
+
+输出文件：
+
+- `data/eval/entity_linking_v2.jsonl`：主评测集，只包含 `validation_status = kept`
+- `data/eval/entity_linking_v2.review.jsonl`：`invalid_gold / rejected` 样本，供人工抽检
+- `data/eval/entity_linking_v2.summary.json`：生成摘要，包含目标数、保留数、review 数和原因示例
+
+字段说明（主集和 review 集都一致）：
+
+- `query / label / gold`：待对齐 query、实体标签、金标标准名
+- `source_entity_id / source_entity_name`：图中实体 id 和标准名
+- `variant_type / difficulty / source`：样本来源、难度和生成方式
+- `validation_exact_hit / validation_fulltext_hit / validation_hybrid_hit / validation_topk_hit`：校验信号
+- `validation_status`：`kept / invalid_gold / rejected`
+- `validation_note`：校验备注
+- `metadata`：附加来源信息
+
+当前一组已落盘的可复现实验结果：
+
+- 主集：`1001` 条（`SKU 308 / Trademark 231 / SPU 231 / Category3 231`）
+- review 集：`42` 条（`invalid_gold = 7`，`rejected = 35`）
+
+#### 5.2.2 跑 baseline 评测
+
 运行：
 
 ```powershell
@@ -370,6 +444,12 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_eval.py
 
 ```powershell
 D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_eval.py --baseline hybrid --top-k 5
+```
+
+对 v2 扩充集评测：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_eval.py --dataset data\eval\entity_linking_v2.jsonl --baseline all
 ```
 
 支持 baseline：
@@ -403,7 +483,55 @@ D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_eval.py --baselin
 - `hybrid_rerank` 只在 `SKU` 子集上启用；非 `SKU` label 直接复用 `hybrid` 结果。
 - `--baseline all` 会按 `exact_match -> fulltext -> hybrid -> hybrid_rerank` 的固定顺序运行，`hybrid_rerank` 的 helped / hurt 审计会复用同次运行里的 `hybrid` 结果。
 - 该评测现在使用 eval 专用的 no-op trace store，不再向 `logs/traces/` 写 entity linking 的 `tool_only` trace。
-- 当前一组可复现实验结果中，`hybrid_rerank` 把 SKU 子集 top-1 accuracy 从 `0.6500` 提升到 `0.7000`，`sku_subset_topk_recall` 保持 `0.8000`，并且 `rerank_hurt=0`。
+- 原始 `77` 条种子集上，`hybrid_rerank` 把 SKU 子集 top-1 accuracy 从 `0.6500` 提升到 `0.7000`，`sku_subset_topk_recall` 保持 `0.8000`，并且 `rerank_hurt=0`。
+- 当前 `v2` 扩充集（`1001` 条）上，一组可复现实验结果为：
+  - `exact_match`：top-1 `0.5175`
+  - `fulltext`：top-1 `0.9051`
+  - `hybrid`：top-1 `0.9241`
+  - `hybrid_rerank`：top-1 `0.9271`
+  - SKU 子集：`hybrid` top-1 `0.8182`，`hybrid_rerank` top-1 `0.8279`
+  - SKU 子集：`hybrid` top-k `0.9156`，`hybrid_rerank` top-k `0.9610`
+
+#### 5.2.3 显著性检验
+
+主脚本：
+
+- `src/eval/entity_linking_significance.py`
+
+比较 `hybrid` vs `hybrid_rerank` 的 SKU 子集 top-1：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_significance.py --left logs\eval\entity_linking_hybrid_memory_off.jsonl --right logs\eval\entity_linking_hybrid_rerank_memory_off.jsonl --label SKU --metric top1_hit --output logs\eval\entity_linking_significance_v2_sku_top1.json
+```
+
+比较 SKU 子集 top-k：
+
+```powershell
+D:\Anaconda_envs\envs\graph\python.exe src\eval\entity_linking_significance.py --left logs\eval\entity_linking_hybrid_memory_off.jsonl --right logs\eval\entity_linking_hybrid_rerank_memory_off.jsonl --label SKU --metric topk_hit --output logs\eval\entity_linking_significance_v2_sku_topk.json
+```
+
+参数说明：
+
+- `--left / --right`：两组 baseline 的逐条评测结果文件
+- `--label`：只筛某个标签做 paired 检验，通常是 `SKU`
+- `--metric`：`top1_hit` 或 `topk_hit`
+- `--bootstrap-samples`：bootstrap 重采样次数，默认 `5000`
+- `--confidence`：置信区间，默认 `0.95`
+- `--seed`：随机种子
+- `--output`：结果输出文件
+
+输出字段：
+
+- `num_pairs`：成对样本数量
+- `mcnemar.left_only / right_only`：两组各自独占正确的样本数
+- `mcnemar.p_value`：McNemar 检验 p 值
+- `bootstrap.observed_diff`：右侧 baseline 相对左侧 baseline 的提升
+- `bootstrap.lower / upper`：bootstrap 95% 置信区间
+
+当前一组 `v2` 可复现实验结果：
+
+- SKU `top1_hit`：`observed_diff = +0.0097`，McNemar `p = 0.7359`，95% CI `[-0.0260, 0.0487]`，**不显著**
+- SKU `topk_hit`：`observed_diff = +0.0455`，McNemar `p = 0.00434`，95% CI `[0.0162, 0.0747]`，**显著**
 
 ### 5.3 KGQA 分阶段评测
 

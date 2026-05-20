@@ -1,0 +1,50 @@
+{
+  "targets": {
+    "SKU": 308,
+    "Trademark": 231,
+    "SPU": 231,
+    "Category3": 231
+  },
+  "counts": {
+    "SKU": 308,
+    "Trademark": 231,
+    "SPU": 231,
+    "Category3": 231
+  },
+  "stats": {
+    "Trademark:seed_v1": 19,
+    "SPU:seed_v1": 14,
+    "Category3:seed_v1": 24,
+    "SKU:seed_v1": 20,
+    "SKU:heuristic": 288,
+    "Trademark:heuristic": 212,
+    "SPU:heuristic": 217,
+    "Category3:heuristic": 207
+  },
+  "source_counts": {
+    "SKU": {
+      "seed": 20,
+      "sku_reranker": 0,
+      "heuristic": 288,
+      "llm": 0
+    },
+    "Trademark": {
+      "seed": 19,
+      "sku_reranker": 0,
+      "heuristic": 212,
+      "llm": 0
+    },
+    "SPU": {
+      "seed": 14,
+      "sku_reranker": 0,
+      "heuristic": 217,
+      "llm": 0
+    },
+    "Category3": {
+      "seed": 24,
+      "sku_reranker": 0,
+      "heuristic": 207,
+      "llm": 0
+    }
+  }
+}

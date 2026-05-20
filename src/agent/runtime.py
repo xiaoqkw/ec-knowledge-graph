@@ -64,6 +64,23 @@ def parse_model(model_cls, payload):
     return model_cls.parse_obj(payload)
 
 
+def resolve_local_embedding_model_name(model_name: str) -> str:
+    candidate = Path(model_name)
+    if candidate.exists():
+        return str(candidate)
+    if "/" not in model_name:
+        return model_name
+    owner, repo = model_name.split("/", 1)
+    cache_root = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{owner}--{repo}" / "snapshots"
+    if not cache_root.exists():
+        return model_name
+    snapshots = sorted([path for path in cache_root.iterdir() if path.is_dir()], reverse=True)
+    for snapshot in snapshots:
+        if (snapshot / "config.json").exists() and ((snapshot / "pytorch_model.bin").exists() or (snapshot / "model.safetensors").exists()):
+            return str(snapshot)
+    return model_name
+
+
 class AgentResources:
     def __init__(self, *, llm_enabled: bool = True):
         self.llm_enabled = llm_enabled
@@ -110,7 +127,7 @@ class AgentResources:
             if HuggingFaceEmbeddings is None:
                 raise ImportError("Embedding dependencies are not installed in the current environment.")
             self._embedding_model = HuggingFaceEmbeddings(
-                model_name=EMBEDDING_MODEL_NAME,
+                model_name=resolve_local_embedding_model_name(EMBEDDING_MODEL_NAME),
                 encode_kwargs={"normalize_embeddings": True},
             )
         return self._embedding_model

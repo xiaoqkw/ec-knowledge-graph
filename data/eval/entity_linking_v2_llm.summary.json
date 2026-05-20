@@ -1,0 +1,108 @@
+{
+  "targets": {
+    "SKU": 308,
+    "Trademark": 231,
+    "SPU": 231,
+    "Category3": 231
+  },
+  "counts": {
+    "SKU": 314,
+    "Trademark": 253,
+    "SPU": 268,
+    "Category3": 239
+  },
+  "review_counts": {
+    "SKU": 6,
+    "Trademark": 22,
+    "SPU": 37,
+    "Category3": 8
+  },
+  "stats": {
+    "Trademark:seed_v1": 19,
+    "SPU:seed_v1": 14,
+    "Category3:seed_v1": 24,
+    "SKU:seed_v1": 20,
+    "SKU:seed": 98,
+    "SKU:reorder": 70,
+    "SKU:abbrev": 5,
+    "SKU:compression": 66,
+    "SKU:alias": 45,
+    "SKU:hard_negative": 10,
+    "Trademark:compression": 67,
+    "Trademark:reorder": 79,
+    "Trademark:alias": 66,
+    "Trademark:abbrev": 11,
+    "Trademark:hard_negative": 11,
+    "SPU:compression": 74,
+    "SPU:reorder": 91,
+    "SPU:alias": 72,
+    "SPU:abbrev": 6,
+    "SPU:hard_negative": 11,
+    "Category3:alias": 64,
+    "Category3:compression": 59,
+    "Category3:reorder": 69,
+    "Category3:hard_negative": 18,
+    "Category3:abbrev": 5
+  },
+  "validation_status_counts": {
+    "invalid_gold": 7,
+    "kept": 1001,
+    "rejected": 66
+  },
+  "source_counts": {
+    "SKU": {
+      "seed": 20,
+      "sku_reranker": 98,
+      "heuristic": 0,
+      "llm": 196
+    },
+    "Trademark": {
+      "seed": 19,
+      "sku_reranker": 0,
+      "heuristic": 0,
+      "llm": 234
+    },
+    "SPU": {
+      "seed": 14,
+      "sku_reranker": 0,
+      "heuristic": 0,
+      "llm": 254
+    },
+    "Category3": {
+      "seed": 24,
+      "sku_reranker": 0,
+      "heuristic": 0,
+      "llm": 215
+    }
+  },
+  "review_reason_samples": {
+    "SKU": [
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "中英混写，使用英文同义表达（spring/autumn、women's、sweatpants、elastic cuffs、ankle-length、slim fit、petite），核心属性完全对应原SKU，无其他相似商品混淆。"
+    ],
+    "Trademark": [
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "中英混写，仍指向同一商标实体",
+      "品牌名全大写加品类词，仍指向同一商标实体"
+    ],
+    "SPU": [
+      "中文别名'苹果'对应Apple品牌，'12'对应型号，仍指向同一SPU",
+      "调换了型号与品牌顺序，但核心实体仍是iPhone 12，语义不变。",
+      "压缩了空格，并添加了容量和颜色属性，但核心品牌型号未变，仍指向该SPU。",
+      "增加了品牌全称'Apple'和网络制式'5G'，调整了语序，但核心实体仍是iPhone 12。",
+      "中文别名，用户常用称呼，仍对应同一SPU。"
+    ],
+    "Category3": [
+      "使用英文别名'T-zone care'替代中文'T区护理'，仍指向同一金标实体。",
+      "将'三轮车'替换为拼音别名，与种子查询'手机'组合，仍指向同一商品，因为拼音在搜索中常被识别为同义词。",
+      "'上装'是'上衣'的同义词，仍指向同一Category3实体。",
+      "中英混写且使用拼音别名，仍指向东北品牌手机类目。",
+      "中英混写且使用英文别名，但语义仍指向手机主板，对应Category3中的主板实体。"
+    ]
+  }
+}

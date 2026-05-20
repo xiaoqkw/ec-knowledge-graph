@@ -420,6 +420,7 @@ class OpenBGSynchronizer:
             """
             MATCH (c3:Category3)-[r:Belong]->(:Category2)
             WHERE c3.id IN $category3_ids
+              AND coalesce(c3.source, '') = 'openbg'
             DELETE r
             """,
             category3_ids=category3_ids,

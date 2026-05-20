@@ -1,0 +1,92 @@
+{
+  "targets": {
+    "SKU": 40,
+    "Trademark": 40,
+    "SPU": 40,
+    "Category3": 40
+  },
+  "counts": {
+    "SKU": 6,
+    "Trademark": 1,
+    "SPU": 3,
+    "Category3": 5
+  },
+  "review_counts": {
+    "SKU": 20,
+    "Trademark": 19,
+    "SPU": 15,
+    "Category3": 21
+  },
+  "stats": {
+    "Trademark:seed_v1": 19,
+    "SPU:seed_v1": 14,
+    "Category3:seed_v1": 24,
+    "SKU:seed_v1": 20,
+    "SKU:seed": 1,
+    "SKU:heuristic": 5,
+    "Trademark:heuristic": 1,
+    "SPU:heuristic": 4,
+    "Category3:heuristic": 2
+  },
+  "validation_status_counts": {
+    "invalid_gold": 74,
+    "kept": 15,
+    "rejected": 1
+  },
+  "source_counts": {
+    "SKU": {
+      "seed": 0,
+      "sku_reranker": 1,
+      "heuristic": 5,
+      "llm": 0
+    },
+    "Trademark": {
+      "seed": 0,
+      "sku_reranker": 0,
+      "heuristic": 1,
+      "llm": 0
+    },
+    "SPU": {
+      "seed": 0,
+      "sku_reranker": 0,
+      "heuristic": 3,
+      "llm": 0
+    },
+    "Category3": {
+      "seed": 3,
+      "sku_reranker": 0,
+      "heuristic": 2,
+      "llm": 0
+    }
+  },
+  "review_reason_samples": {
+    "SKU": [
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph"
+    ],
+    "Trademark": [
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph"
+    ],
+    "SPU": [
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph"
+    ],
+    "Category3": [
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph",
+      "gold_missing_in_graph"
+    ]
+  }
+}

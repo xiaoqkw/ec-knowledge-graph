@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -24,6 +25,17 @@ class EntityLinkOutput(BaseModel):
     aligned_entities: list[EntityRef] = Field(default_factory=list)
     candidates_by_param: dict[str, list[EntityCandidate]] = Field(default_factory=dict)
     used_mode: str
+
+
+FULLTEXT_SPECIAL_CHARS_PATTERN = re.compile(r'([+\-!(){}\[\]^"~*?:\\/])')
+
+
+def build_safe_fulltext_query(query: str) -> str:
+    text = str(query or "").strip()
+    if not text:
+        return text
+    escaped = FULLTEXT_SPECIAL_CHARS_PATTERN.sub(r"\\\1", text)
+    return escaped
 
 
 class EntityLinkTool(ToolBase):
@@ -101,7 +113,7 @@ class EntityLinkTool(ToolBase):
                 """,
                 params={
                     "index_name": index_info["fulltext_index"],
-                    "query": query,
+                    "query": build_safe_fulltext_query(query),
                     "limit": k,
                 },
             )

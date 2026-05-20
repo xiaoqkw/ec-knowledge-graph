@@ -13,7 +13,8 @@ if str(SRC_DIR) not in sys.path:
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 from agent import AgentController, AgentRuntime, AgentResources
-from agent.runtime import dump_model
+from agent.runtime import dump_model, resolve_local_embedding_model_name
+from agent.tools.entity_link_tool import build_safe_fulltext_query
 from configuration.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL, EMBEDDING_MODEL_NAME, ENTITY_INDEX_CONFIG, NEO4J_CONFIG
 from web.memory import QASession
 
@@ -334,7 +335,7 @@ class ChatService:
                 ORDER BY score DESC
                 LIMIT $limit
                 """,
-                params={"index_name": index_info["fulltext_index"], "query": query, "limit": k},
+                params={"index_name": index_info["fulltext_index"], "query": build_safe_fulltext_query(query), "limit": k},
             )
             return self._dedupe_candidates(row.get("name") for row in rows)
         if mode == "hybrid":
@@ -484,7 +485,7 @@ class ChatService:
             return self.neo4j_vectors[label]
         if self.embedding_model is None:
             self.embedding_model = HuggingFaceEmbeddings(
-                model_name=EMBEDDING_MODEL_NAME,
+                model_name=resolve_local_embedding_model_name(EMBEDDING_MODEL_NAME),
                 encode_kwargs={"normalize_embeddings": True},
             )
         index_info = ENTITY_INDEX_CONFIG[label]
