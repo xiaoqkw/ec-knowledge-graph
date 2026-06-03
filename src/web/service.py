@@ -235,6 +235,7 @@ class ChatService:
 4. entities_to_align 中列出所有需要做实体对齐的参数。
 5. label 字段只能使用图谱中真实存在的节点标签。
 6. 如果问题不需要实体对齐，entities_to_align 返回空列表。
+7. 查询商品、品牌、类目等节点的展示名称时，优先使用稳定字段 `name`。尽量不要使用 `title` 属性；只有在 schema 或问题明确要求且确认该标签稳定存在 `title` 时才使用。
 输出格式：
 {{
   "cypher_query": "生成的 Cypher 语句",

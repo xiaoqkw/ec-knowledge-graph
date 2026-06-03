@@ -56,10 +56,11 @@ class AnswerTool(ToolBase):
 3. 不能让辅助证据改写查询结果里已有的事实、数量、归属或结论。
 4. 回答尽量简洁。
 """
+        sanitized_query_result = self._strip_embedding_fields(payload.query_result)
         rendered_prompt = prompt.format(
             question=payload.question,
             history_text=self._format_history(payload.history),
-            query_result=json.dumps(payload.query_result, ensure_ascii=False),
+            query_result=json.dumps(sanitized_query_result, ensure_ascii=False),
             evidence=json.dumps(
                 [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in payload.evidence],
                 ensure_ascii=False,
@@ -68,6 +69,18 @@ class AnswerTool(ToolBase):
         output = llm.invoke(rendered_prompt)
         content = getattr(output, "content", str(output)).strip()
         return AnswerOutput(answer=content or "当前图谱中没有找到相关信息。", llm_used=True)
+
+    @classmethod
+    def _strip_embedding_fields(cls, value):
+        if isinstance(value, dict):
+            return {
+                key: cls._strip_embedding_fields(item)
+                for key, item in value.items()
+                if str(key) != "embedding"
+            }
+        if isinstance(value, list):
+            return [cls._strip_embedding_fields(item) for item in value]
+        return value
 
     @staticmethod
     def _format_history(history: list[dict[str, str]] | None) -> str:

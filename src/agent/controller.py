@@ -1108,6 +1108,7 @@ class KGQAPlanner:
 
 约束：
 - 对需要实体对齐的参数，禁止生成 `id(node) = $param` 或 `elementId(node) = $param` 这类按图内部 ID 匹配的条件；默认使用 `node.name = $param` 或等价的业务属性匹配。
+- 查询商品、品牌、类目等节点的展示名称时，优先使用稳定字段 `name`。尽量不要使用 `title` 属性；只有在 schema 或问题明确要求且确认该标签稳定存在 `title` 时才使用。
 - `tool_plan` 保持格式中的结构，根据问题合理填写 arguments：
   - `entity_link_tool`：用于把用户原始实体对齐到图谱标准节点名。可选参数：
     - `mode`：`fulltext | hybrid`
